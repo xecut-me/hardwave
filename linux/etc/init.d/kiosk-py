@@ -1,8 +1,8 @@
 #!/sbin/openrc-run
 
 name="kiosk"
-command="/usr/bin/chromium"
-command_args="--no-sandbox --kiosk --no-first-run --disable-infobars --noerrdialogs --use-fake-ui-for-media-stream \"https://hardwave.tgr.rs/index.html?api_key=&chat_id=\""
+command="/usr/bin/python3"
+command_args="./src/main.py"
 command_background=true
 pidfile="/run/kiosk.pid"
 command_user="kiosk:kiosk"

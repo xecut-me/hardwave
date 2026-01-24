@@ -93,7 +93,7 @@
       const params = new URLSearchParams(window.location.search);
       const queryKey = params.get('api_key');
       const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
-      const allowedChatId = params.get('chat_id') ? parseInt(params.get('chat_id'), 10) : null;
+      const allowedChatId = params.get('chat_id') || null;
 
       console.log('[CONFIG] URL parameters:', {
         hasApiKey: !!queryKey,
@@ -148,7 +148,7 @@
         });
 
         // Filter by chat_id if specified
-        if (allowedChatId && message.chat.id !== allowedChatId) {
+        if (allowedChatId && String(message.chat.id) !== allowedChatId) {
           console.log('[DISPLAY] Skipping message - chat_id filter mismatch:', {
             expected: allowedChatId,
             actual: message.chat.id

@@ -14,6 +14,16 @@ vim /etc/init.d/kiosk
 rc-service kiosk restart
 ```
 
+## Debug
+
+```
+ssh hardwave
+su kiosk
+rm screenshot.png
+DISPLAY=:0 scrot ~/screenshot.png
+scp hardwave:/home/kiosk/screenshot.png .
+```
+
 ## Setup
 
 1. Create a Telegram bot via [@BotFather](https://t.me/BotFather) and get your API key
@@ -25,7 +35,7 @@ rc-service kiosk restart
 | Parameter | Required | Description | Example |
 |-----------|----------|-------------|---------|
 | `api_key` | Yes | Telegram bot token | `?api_key=123456:ABC...` |
-| `chat_id` | Yes | Only show media from this chat ID | `?chat_id=123` |
+| `chat_id` | Yes | Only show media from this chat ID | `?chat_id=-1001234567890` |
 | `respect_aspect_ratio` | No | Preserve aspect ratio (off by default, stretches to fill) | `?respect_aspect_ratio=1` or `?respect_aspect_ratio=true` |
 
 ## Features
