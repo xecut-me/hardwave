@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Telegram Updates</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: sans-serif;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+      padding-right: 40px;
+    }
+    .welcome {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+      font-size: 50px;
+      text-align: center;
+    }
+    .photo-view {
+      display: none;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px;
+      flex-shrink: 0;
+    }
+    .sender {
+      font-size: 50px;
+      font-weight: bold;
+    }
+    .bot-name {
+      font-size: 50px;
+    }
+    .image-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+    .image-container img,
+    .image-container video {
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+    }
+    .image-container.keep-aspect img,
+    .image-container.keep-aspect video {
+      object-fit: contain;
+    }
+    #video {
+      display: none;
+    }
+    .json-view {
+      display: none;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+    .json-view .header {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .json-content {
+      flex: 1;
+      overflow: auto;
+      padding: 20px;
+      font-family: monospace;
+      font-size: 36px;
+    }
+    .json-content pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font: inherit;
+    }
+    .photo-view {
+      cursor: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="welcome" id="welcome">send media to @harddver_bot in @xexecut_chat</div>
+
+  <div class="photo-view" id="photoView">
+    <div class="header">
+      <div class="sender" id="sender"></div>
+      <div class="bot-name">send media to @harddver_bot in @xexecut_chat</div>
+    </div>
+    <div class="image-container">
+      <img id="photo" src="" alt="Photo">
+      <video id="video" src="" autoplay loop muted playsinline></video>
+    </div>
+  </div>
+
+  <div class="json-view" id="jsonView">
+    <div class="header">
+      <div class="bot-name">send media to @harddver_bot in @xexecut_chat</div>
+    </div>
+    <div class="json-content"><pre id="jsonContent"></pre></div>
+  </div>
+
+  <script>
+    (function() {
+      console.log('[INIT] Starting Telegram Updates viewer');
+
+      const params = new URLSearchParams(window.location.search);
+      const queryKey = params.get('api_key');
+      const showJson = params.get('json') === '1' || params.get('json') === 'true';
+      const keepAspectRatio = params.get('aspect_ratio') === '1' || params.get('aspect_ratio') === 'true';
+      const allowedChatId = params.get('chat_id') ? parseInt(params.get('chat_id'), 10) : null;
+
+      console.log('[CONFIG] URL parameters:', {
+        hasApiKey: !!queryKey,
+        showJson,
+        keepAspectRatio,
+        allowedChatId
+      });
+
+      if (queryKey) {
+        console.log('[CONFIG] API key found in URL, saving to localStorage');
+        localStorage.setItem('telegram_api_key', queryKey);
+      } else {
+        console.log('[CONFIG] No API key in URL, will check localStorage');
+      }
+
+      const apiKey = queryKey || localStorage.getItem('telegram_api_key');
+
+      if (!apiKey) {
+        console.error('[CONFIG] No API key found in URL or localStorage - aborting');
+        document.body.innerHTML = '<div class="welcome">key not found</div>';
+        return;
+      }
+
+      console.log('[CONFIG] API key loaded successfully');
+
+      const welcomeEl = document.getElementById('welcome');
+      const photoViewEl = document.getElementById('photoView');
+      const jsonViewEl = document.getElementById('jsonView');
+      const senderEl = document.getElementById('sender');
+      const photoEl = document.getElementById('photo');
+      const videoEl = document.getElementById('video');
+      const jsonContentEl = document.getElementById('jsonContent');
+      const imageContainerEl = document.querySelector('.image-container');
+
+      if (keepAspectRatio) {
+        imageContainerEl.classList.add('keep-aspect');
+      }
+
+      let offset = 0;
+
+      function archiveUpdate(update) {
+        const key = 'message_archive';
+        let archive = [];
+        try {
+          archive = JSON.parse(localStorage.getItem(key) || '[]');
+        } catch (e) {
+          console.error('[ARCHIVE] Failed to parse archive:', e);
+        }
+
+        archive.push(update);
+        let data = JSON.stringify(archive);
+
+        // If larger than 1MB, drop first half
+        if (data.length > 1024 * 1024) {
+          console.log('[ARCHIVE] Size exceeded 1MB, dropping first half:', {
+            before: archive.length,
+            size: data.length
+          });
+          archive = archive.slice(Math.floor(archive.length / 2));
+          data = JSON.stringify(archive);
+          console.log('[ARCHIVE] After trim:', { after: archive.length, size: data.length });
+        }
+
+        localStorage.setItem(key, data);
+        console.log('[ARCHIVE] Saved update, total:', archive.length);
+      }
+
+      function displayUpdate(update, save = true) {
+        console.log('[DISPLAY] Processing update:', { update_id: update.update_id, save });
+
+        const message = update.message;
+        if (!message) {
+          console.log('[DISPLAY] Skipping update - no message field present');
+          return;
+        }
+
+        console.log('[DISPLAY] Message received:', {
+          message_id: message.message_id,
+          chat_id: message.chat.id,
+          from: message.from.first_name,
+          has_photo: !!(message.photo && message.photo.length > 0),
+          has_video: !!message.video
+        });
+
+        // Filter by chat_id if specified
+        if (allowedChatId && message.chat.id !== allowedChatId) {
+          console.log('[DISPLAY] Skipping message - chat_id filter mismatch:', {
+            expected: allowedChatId,
+            actual: message.chat.id
+          });
+          return;
+        }
+
+        if (save) {
+          console.log('[DISPLAY] Saving update to localStorage');
+          localStorage.setItem('last_update', JSON.stringify(update));
+          archiveUpdate(update);
+        } else {
+          console.log('[DISPLAY] Skipping localStorage save (restore mode)');
+        }
+
+        if (showJson) {
+          console.log('[DISPLAY] JSON mode enabled - showing raw JSON view');
+          welcomeEl.style.display = 'none';
+          photoViewEl.style.display = 'none';
+          jsonViewEl.style.display = 'flex';
+          jsonContentEl.textContent = JSON.stringify(update, null, 2);
+          return;
+        }
+
+        const sender = message.from.first_name + (message.from.username ? ' @' + message.from.username : '');
+        let fileId = null;
+        let isVideo = false;
+
+        // Check message itself, then reply_to_message for media
+        const mediaSource = (message.photo || message.video || message.animation)
+          ? message
+          : message.reply_to_message;
+
+        if (mediaSource) {
+          if (mediaSource.photo && mediaSource.photo.length > 0) {
+            fileId = mediaSource.photo[mediaSource.photo.length - 1].file_id;
+            isVideo = false;
+            console.log('[DISPLAY] Detected PHOTO, using largest size:', {
+              photo_sizes_count: mediaSource.photo.length,
+              selected_file_id: fileId,
+              from_reply: mediaSource !== message
+            });
+          } else if (mediaSource.animation) {
+            fileId = mediaSource.animation.file_id;
+            isVideo = true;
+            console.log('[DISPLAY] Detected GIF/ANIMATION:', {
+              file_id: fileId,
+              from_reply: mediaSource !== message
+            });
+          } else if (mediaSource.video) {
+            fileId = mediaSource.video.file_id;
+            isVideo = true;
+            console.log('[DISPLAY] Detected VIDEO:', {
+              file_id: fileId,
+              from_reply: mediaSource !== message
+            });
+          }
+        }
+
+        if (!fileId) {
+          console.log('[DISPLAY] Message has no photo, video, or animation - ignoring');
+        }
+
+        if (fileId) {
+          console.log('[DISPLAY] Fetching file from Telegram API...');
+          fetch(`https://api.telegram.org/bot${apiKey}/getFile?file_id=${fileId}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.ok) {
+                const fileUrl = `https://api.telegram.org/file/bot${apiKey}/${data.result.file_path}`;
+                console.log('[DISPLAY] File fetched successfully:', {
+                  file_path: data.result.file_path,
+                  isVideo
+                });
+
+                welcomeEl.style.display = 'none';
+                jsonViewEl.style.display = 'none';
+                photoViewEl.style.display = 'flex';
+                senderEl.textContent = sender;
+
+                if (isVideo) {
+                  console.log('[DISPLAY] Rendering as VIDEO element');
+                  photoEl.style.display = 'none';
+                  videoEl.style.display = 'block';
+                  videoEl.src = fileUrl;
+                } else {
+                  console.log('[DISPLAY] Rendering as IMG element');
+                  videoEl.style.display = 'none';
+                  photoEl.style.display = 'block';
+                  photoEl.src = fileUrl;
+                }
+              } else {
+                console.error('[DISPLAY] Telegram API error:', data);
+              }
+            })
+            .catch(err => {
+              console.error('[DISPLAY] Failed to fetch file:', err);
+            });
+        }
+      }
+
+      // Restore last update from localStorage
+      const savedUpdate = localStorage.getItem('last_update');
+      if (savedUpdate) {
+        console.log('[RESTORE] Found saved update in localStorage, attempting to restore');
+        try {
+          displayUpdate(JSON.parse(savedUpdate), false);
+          console.log('[RESTORE] Successfully restored last update');
+        } catch (e) {
+          console.error('[RESTORE] Failed to parse saved update:', e);
+        }
+      } else {
+        console.log('[RESTORE] No saved update found in localStorage');
+      }
+
+      async function pollUpdates() {
+        console.log('[POLL] Starting long-poll request with offset:', offset);
+        try {
+          const url = `https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=30`;
+          const res = await fetch(url);
+          const data = await res.json();
+
+          if (data.ok && data.result.length > 0) {
+            console.log('[POLL] Received', data.result.length, 'update(s)');
+            for (const update of data.result) {
+              console.log('[POLL] Processing update_id:', update.update_id);
+              displayUpdate(update);
+              offset = update.update_id + 1;
+              console.log('[POLL] Updated offset to:', offset);
+            }
+          } else if (data.ok) {
+            console.log('[POLL] No new updates (timeout reached)');
+          } else {
+            console.error('[POLL] API returned error:', data);
+          }
+        } catch (e) {
+          console.error('[POLL] Polling error:', e);
+        }
+
+        console.log('[POLL] Scheduling next poll...');
+        pollUpdates();
+      }
+
+      console.log('[INIT] Starting polling loop');
+      pollUpdates();
+    })();
+  </script>
+</body>
+</html>
