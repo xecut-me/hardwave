@@ -132,22 +132,14 @@
         allowedChatId
       });
 
-      if (queryKey) {
-        console.log('[CONFIG] API key found in URL, saving to localStorage');
-        localStorage.setItem('telegram_api_key', queryKey);
-      } else {
-        console.log('[CONFIG] No API key in URL, will check localStorage');
-      }
-
-      const apiKey = queryKey || localStorage.getItem('telegram_api_key');
-
-      if (!apiKey) {
-        console.error('[CONFIG] No API key found in URL or localStorage - aborting');
-        document.body.innerHTML = '<div class="welcome">key not found</div>';
+      if (!queryKey) {
+        console.error('[CONFIG] No API key found in URL - aborting');
+        document.body.innerHTML = '<div class="welcome">key not found in URL</div>';
         return;
       }
 
-      console.log('[CONFIG] API key loaded successfully');
+      const apiKey = queryKey;
+      console.log('[CONFIG] API key loaded from URL');
 
       const welcomeEl = document.getElementById('welcome');
       const photoViewEl = document.getElementById('photoView');
@@ -213,6 +205,15 @@
           console.log('[DISPLAY] Skipping message - chat_id filter mismatch:', {
             expected: allowedChatId,
             actual: message.chat.id
+          });
+          return;
+        }
+
+        // Filter out users without username
+        if (!message.from.username) {
+          console.log('[DISPLAY] Skipping message - user has no username:', {
+            from: message.from.first_name,
+            user_id: message.from.id
           });
           return;
         }
