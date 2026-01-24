@@ -2,7 +2,7 @@
 
 Disclaimer: this shit was vibe coded and I do not reviewed this code. This is not a big deal as this is client-only, isolated bot on separate domain.
 
-A simple web page that displays photos and videos sent to a Telegram bot in real-time.
+A simple web page that displays photos, videos and GIFs sent to a Telegram bot in real-time. Intentionally distorts images to fit whole screen (feature can be disabled).
 
 ## Deploy (admin only)
 
@@ -17,39 +17,31 @@ rc-service kiosk restart
 ## Setup
 
 1. Create a Telegram bot via [@BotFather](https://t.me/BotFather) and get your API key
-2. Open the page with your API key: `index.html?api_key=YOUR_BOT_TOKEN`
-
-The API key is stored in localStorage, so you only need to provide it once.
+2. Get the chat ID of the chat you want to display media from
+3. Open the page with required parameters: `index.html?api_key=YOUR_BOT_TOKEN&chat_id=YOUR_CHAT_ID`
 
 ## URL Parameters
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `api_key` | Telegram bot token (required on first visit) | `?api_key=123456:ABC...` |
-| `chat_id` | Only show media from this chat ID | `?chat_id=123` |
-| `json` | Show raw JSON instead of media | `?json=1` or `?json=true` |
-| `aspect_ratio` | Preserve aspect ratio (off by default, stretches to fill) | `?aspect_ratio=1` or `?aspect_ratio=true` |
+| Parameter | Required | Description | Example |
+|-----------|----------|-------------|---------|
+| `api_key` | Yes | Telegram bot token | `?api_key=123456:ABC...` |
+| `chat_id` | Yes | Only show media from this chat ID | `?chat_id=123` |
+| `respect_aspect_ratio` | No | Preserve aspect ratio (off by default, stretches to fill) | `?respect_aspect_ratio=1` or `?respect_aspect_ratio=true` |
 
 ## Features
 
-- Displays photos and videos sent to the bot
+- Displays photos, GIFs, and videos sent directly to the bot
 - Shows sender name and username in the top left
-- Auto-plays videos (muted, looped)
-- Persists last received media across page reloads
+- Auto-plays videos and GIFs (muted, looped)
 - Long-polling for real-time updates
+- All received updates are logged to browser console as JSON (for debugging)
 
 ## Examples
 
 ```
-# Basic usage
-index.html?api_key=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+# Basic usage (both api_key and chat_id required)
+index.html?api_key=123456789:ABCdefGHIjklMNOpqrsTUVwxyz&chat_id=-1001234567890
 
-# Filter by specific chat
-index.html?chat_id=123
-
-# Preserve aspect ratio
-index.html?aspect_ratio=1
-
-# Debug mode (show JSON)
-index.html?json=1
+# With preserved aspect ratio
+index.html?api_key=123456789:ABCdefGHIjklMNOpqrsTUVwxyz&chat_id=-1001234567890&respect_aspect_ratio=1
 ```

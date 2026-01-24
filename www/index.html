@@ -67,52 +67,23 @@
     #video {
       display: none;
     }
-    .json-view {
-      display: none;
-      flex-direction: column;
-      width: 100%;
-      height: 100%;
-    }
-    .json-view .header {
-      display: flex;
-      justify-content: flex-end;
-    }
-    .json-content {
-      flex: 1;
-      overflow: auto;
-      padding: 20px;
-      font-family: monospace;
-      font-size: 36px;
-    }
-    .json-content pre {
-      margin: 0;
-      white-space: pre-wrap;
-      font: inherit;
-    }
     .photo-view {
       cursor: none;
     }
   </style>
 </head>
 <body>
-  <div class="welcome" id="welcome">send media to @harddver_bot in @xexecut_chat</div>
+  <div class="welcome" id="welcome">send media in @xexecut_chat</div>
 
   <div class="photo-view" id="photoView">
     <div class="header">
       <div class="sender" id="sender"></div>
-      <div class="bot-name">send media to @harddver_bot in @xexecut_chat</div>
+      <div class="bot-name">send media in @xexecut_chat</div>
     </div>
     <div class="image-container">
       <img id="photo" src="" alt="Photo">
       <video id="video" src="" autoplay loop muted playsinline></video>
     </div>
-  </div>
-
-  <div class="json-view" id="jsonView">
-    <div class="header">
-      <div class="bot-name">send media to @harddver_bot in @xexecut_chat</div>
-    </div>
-    <div class="json-content"><pre id="jsonContent"></pre></div>
   </div>
 
   <script>
@@ -121,20 +92,24 @@
 
       const params = new URLSearchParams(window.location.search);
       const queryKey = params.get('api_key');
-      const showJson = params.get('json') === '1' || params.get('json') === 'true';
-      const keepAspectRatio = params.get('aspect_ratio') === '1' || params.get('aspect_ratio') === 'true';
+      const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
       const allowedChatId = params.get('chat_id') ? parseInt(params.get('chat_id'), 10) : null;
 
       console.log('[CONFIG] URL parameters:', {
         hasApiKey: !!queryKey,
-        showJson,
         keepAspectRatio,
         allowedChatId
       });
 
       if (!queryKey) {
         console.error('[CONFIG] No API key found in URL - aborting');
-        document.body.innerHTML = '<div class="welcome">key not found in URL</div>';
+        document.body.innerHTML = '<div class="welcome">api_key not found in URL</div>';
+        return;
+      }
+
+      if (!allowedChatId) {
+        console.error('[CONFIG] No chat_id found in URL - aborting');
+        document.body.innerHTML = '<div class="welcome">chat_id not found in URL</div>';
         return;
       }
 
@@ -143,11 +118,9 @@
 
       const welcomeEl = document.getElementById('welcome');
       const photoViewEl = document.getElementById('photoView');
-      const jsonViewEl = document.getElementById('jsonView');
       const senderEl = document.getElementById('sender');
       const photoEl = document.getElementById('photo');
       const videoEl = document.getElementById('video');
-      const jsonContentEl = document.getElementById('jsonContent');
       const imageContainerEl = document.querySelector('.image-container');
 
       if (keepAspectRatio) {
@@ -156,35 +129,9 @@
 
       let offset = 0;
 
-      function archiveUpdate(update) {
-        const key = 'message_archive';
-        let archive = [];
-        try {
-          archive = JSON.parse(localStorage.getItem(key) || '[]');
-        } catch (e) {
-          console.error('[ARCHIVE] Failed to parse archive:', e);
-        }
-
-        archive.push(update);
-        let data = JSON.stringify(archive);
-
-        // If larger than 1MB, drop first half
-        if (data.length > 1024 * 1024) {
-          console.log('[ARCHIVE] Size exceeded 1MB, dropping first half:', {
-            before: archive.length,
-            size: data.length
-          });
-          archive = archive.slice(Math.floor(archive.length / 2));
-          data = JSON.stringify(archive);
-          console.log('[ARCHIVE] After trim:', { after: archive.length, size: data.length });
-        }
-
-        localStorage.setItem(key, data);
-        console.log('[ARCHIVE] Saved update, total:', archive.length);
-      }
-
-      function displayUpdate(update, save = true) {
-        console.log('[DISPLAY] Processing update:', { update_id: update.update_id, save });
+      function displayUpdate(update) {
+        console.log('[DISPLAY] Processing update:', { update_id: update.update_id });
+        console.log('[DISPLAY] Full JSON:', JSON.stringify(update, null, 2));
 
         const message = update.message;
         if (!message) {
@@ -218,56 +165,25 @@
           return;
         }
 
-        if (save) {
-          console.log('[DISPLAY] Saving update to localStorage');
-          localStorage.setItem('last_update', JSON.stringify(update));
-          archiveUpdate(update);
-        } else {
-          console.log('[DISPLAY] Skipping localStorage save (restore mode)');
-        }
-
-        if (showJson) {
-          console.log('[DISPLAY] JSON mode enabled - showing raw JSON view');
-          welcomeEl.style.display = 'none';
-          photoViewEl.style.display = 'none';
-          jsonViewEl.style.display = 'flex';
-          jsonContentEl.textContent = JSON.stringify(update, null, 2);
-          return;
-        }
-
         const sender = message.from.first_name + (message.from.username ? ' @' + message.from.username : '');
         let fileId = null;
         let isVideo = false;
 
-        // Check message itself, then reply_to_message for media
-        const mediaSource = (message.photo || message.video || message.animation)
-          ? message
-          : message.reply_to_message;
-
-        if (mediaSource) {
-          if (mediaSource.photo && mediaSource.photo.length > 0) {
-            fileId = mediaSource.photo[mediaSource.photo.length - 1].file_id;
-            isVideo = false;
-            console.log('[DISPLAY] Detected PHOTO, using largest size:', {
-              photo_sizes_count: mediaSource.photo.length,
-              selected_file_id: fileId,
-              from_reply: mediaSource !== message
-            });
-          } else if (mediaSource.animation) {
-            fileId = mediaSource.animation.file_id;
-            isVideo = true;
-            console.log('[DISPLAY] Detected GIF/ANIMATION:', {
-              file_id: fileId,
-              from_reply: mediaSource !== message
-            });
-          } else if (mediaSource.video) {
-            fileId = mediaSource.video.file_id;
-            isVideo = true;
-            console.log('[DISPLAY] Detected VIDEO:', {
-              file_id: fileId,
-              from_reply: mediaSource !== message
-            });
-          }
+        if (message.photo && message.photo.length > 0) {
+          fileId = message.photo[message.photo.length - 1].file_id;
+          isVideo = false;
+          console.log('[DISPLAY] Detected PHOTO, using largest size:', {
+            photo_sizes_count: message.photo.length,
+            selected_file_id: fileId
+          });
+        } else if (message.animation) {
+          fileId = message.animation.file_id;
+          isVideo = true;
+          console.log('[DISPLAY] Detected GIF/ANIMATION:', { file_id: fileId });
+        } else if (message.video) {
+          fileId = message.video.file_id;
+          isVideo = true;
+          console.log('[DISPLAY] Detected VIDEO:', { file_id: fileId });
         }
 
         if (!fileId) {
@@ -287,17 +203,19 @@
                 });
 
                 welcomeEl.style.display = 'none';
-                jsonViewEl.style.display = 'none';
                 photoViewEl.style.display = 'flex';
                 senderEl.textContent = sender;
 
                 if (isVideo) {
                   console.log('[DISPLAY] Rendering as VIDEO element');
                   photoEl.style.display = 'none';
+                  photoEl.src = '';
                   videoEl.style.display = 'block';
                   videoEl.src = fileUrl;
                 } else {
                   console.log('[DISPLAY] Rendering as IMG element');
+                  videoEl.pause();
+                  videoEl.src = '';
                   videoEl.style.display = 'none';
                   photoEl.style.display = 'block';
                   photoEl.src = fileUrl;
@@ -310,20 +228,6 @@
               console.error('[DISPLAY] Failed to fetch file:', err);
             });
         }
-      }
-
-      // Restore last update from localStorage
-      const savedUpdate = localStorage.getItem('last_update');
-      if (savedUpdate) {
-        console.log('[RESTORE] Found saved update in localStorage, attempting to restore');
-        try {
-          displayUpdate(JSON.parse(savedUpdate), false);
-          console.log('[RESTORE] Successfully restored last update');
-        } catch (e) {
-          console.error('[RESTORE] Failed to parse saved update:', e);
-        }
-      } else {
-        console.log('[RESTORE] No saved update found in localStorage');
       }
 
       async function pollUpdates() {
