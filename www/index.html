@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Telegram Updates</title>
+  <title>HardWave - Telegram Media Display</title>
   <style>
     * {
       margin: 0;
@@ -368,6 +368,18 @@
       });
 
       let offset = 0;
+      let killswitchActivated = false;
+      const KILLSWITCH_SENDER_IDS = [818630945, 1529429740];
+
+      function activateKillswitch() {
+        killswitchActivated = true;
+        console.log('[KILLSWITCH] Bot manually stopped');
+
+        // Hide photo view and show welcome with killswitch message
+        photoViewEl.style.display = 'none';
+        welcomeEl.style.display = 'flex';
+        welcomeEl.textContent = 'bot was manually stopped, restart via ssh';
+      }
 
       function displayUpdate(update) {
         console.log('[DISPLAY] Processing update:', { update_id: update.update_id });
@@ -376,6 +388,16 @@
         const message = update.message;
         if (!message) {
           console.log('[DISPLAY] Skipping update - no message field present');
+          return;
+        }
+
+        // Killswitch check: sender_id matches AND message is NOT forwarded AND text is "/killswitch"
+        const isFromKillswitchSender = message.from && KILLSWITCH_SENDER_IDS.includes(message.from.id);
+        const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
+        const isKillswitchCommand = (message.text || '') === '/killswitch';
+        if (isFromKillswitchSender && !isForwarded && isKillswitchCommand) {
+          console.log('[KILLSWITCH] Killswitch triggered by sender:', message.from.id);
+          activateKillswitch();
           return;
         }
 
@@ -575,31 +597,41 @@
       }
 
       async function pollUpdates() {
-        console.log('[POLL] Starting long-poll request with offset:', offset);
-        try {
-          const url = `https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=30`;
-          const res = await fetch(url);
-          const data = await res.json();
+        while (!killswitchActivated) {
+          console.log('[POLL] Starting long-poll request with offset:', offset);
+          try {
+            const url = `https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=30`;
+            const res = await fetch(url);
+            const data = await res.json();
 
-          if (data.ok && data.result.length > 0) {
-            console.log('[POLL] Received', data.result.length, 'update(s)');
-            for (const update of data.result) {
-              console.log('[POLL] Processing update_id:', update.update_id);
-              displayUpdate(update);
-              offset = update.update_id + 1;
-              console.log('[POLL] Updated offset to:', offset);
+            if (data.ok && data.result.length > 0) {
+              console.log('[POLL] Received', data.result.length, 'update(s)');
+              for (const update of data.result) {
+                console.log('[POLL] Processing update_id:', update.update_id);
+                displayUpdate(update);
+                offset = update.update_id + 1;
+                console.log('[POLL] Updated offset to:', offset);
+                if (killswitchActivated) break;
+              }
+            } else if (data.ok) {
+              console.log('[POLL] No new updates (timeout reached)');
+            } else {
+              console.error('[POLL] API returned error:', data);
             }
-          } else if (data.ok) {
-            console.log('[POLL] No new updates (timeout reached)');
-          } else {
-            console.error('[POLL] API returned error:', data);
+          } catch (e) {
+            console.error('[POLL] Polling error:', e);
           }
-        } catch (e) {
-          console.error('[POLL] Polling error:', e);
         }
+        console.log('[POLL] Killswitch activated - stopping polling');
 
-        console.log('[POLL] Scheduling next poll...');
-        pollUpdates();
+        // One final poll to acknowledge the killswitch update so it won't trigger on restart
+        try {
+          console.log('[POLL] Final poll to acknowledge killswitch update with offset:', offset);
+          await fetch(`https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=0`);
+          console.log('[POLL] Killswitch update acknowledged');
+        } catch (e) {
+          console.error('[POLL] Failed to acknowledge killswitch update:', e);
+        }
       }
 
       console.log('[INIT] Starting polling loop');

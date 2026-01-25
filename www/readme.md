@@ -1,6 +1,6 @@
-# Hardwave - Telegram Media Display
+# HardWave - Telegram Media Display
 
-Disclaimer: this shit was vibe coded and I do not reviewed this code. This is not a big deal as this is client-only, isolated bot on separate domain.
+Disclaimer: code is AI generated, without deep review, just kinda works. This is not a big deal as this is client-only, isolated bot on separate domain.
 
 A simple web page that displays photos, videos and GIFs sent to a Telegram bot in real-time. Intentionally distorts images to fit whole screen (feature can be disabled).
 
@@ -62,6 +62,11 @@ The page includes WebHID support for a custom keyboard device (Adafruit, VID: 0x
 
 - **Time sync**: Automatically syncs time to the device on page load (Europe/Belgrade timezone)
 - **`/display <text>` command**: Send this command in the Telegram chat to display running text on the HID device. Text must be at least 5 characters and contain only `a-zA-Z0-9-_` and spaces.
+- **`/random` command**: Sends 100 random raw packages to the HID device for testing.
+
+## Admin Commands
+
+- **`/killswitch`**: Stops the bot and displays a message to restart via SSH. Only works for authorized sender IDs (not forwarded messages).
 
 ## Examples
 
