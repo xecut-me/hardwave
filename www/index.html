@@ -120,6 +120,105 @@
   </div>
 
   <script>
+    // === Keyboard Command Module ===
+    const KeyboardCommands = (function() {
+      const VID = 0x239A;
+      const PID = 0x80B4;
+      const USAGE_PAGE = 0xFF00;
+      const USAGE = 0x01;
+      const REPORT_ID = 0x04;
+      const REPORT_LEN = 48;
+      const TEXT_LEN = 46;
+
+      const CMD_RUNNING_TEXT = 0x10;
+      const CMD_TIME_SYNC = 0x12;
+
+      const enc = new TextEncoder();
+      let dev = null;
+
+      async function ensureDevice() {
+        if (!("hid" in navigator)) throw new Error("WebHID not available");
+        if (dev && dev.opened) return dev;
+        const granted = await navigator.hid.getDevices();
+        dev = granted.find(d => d.vendorId === VID && d.productId === PID) || null;
+        if (!dev) {
+          const picked = await navigator.hid.requestDevice({
+            filters: [{ vendorId: VID, productId: PID, usagePage: USAGE_PAGE, usage: USAGE }]
+          });
+          dev = picked && picked[0] ? picked[0] : null;
+        }
+        if (!dev) throw new Error("No device selected");
+        if (!dev.opened) await dev.open();
+        return dev;
+      }
+
+      function getCurrentTime() {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Belgrade",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }).formatToParts(now);
+
+        const map = Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+        const y = Number(map.year);
+        const mo = Number(map.month);
+        const d = Number(map.day);
+        const h = Number(map.hour);
+        const mi = Number(map.minute);
+        const s = Number(map.second);
+
+        return Math.floor(Date.UTC(y, mo - 1, d, h, mi, s) / 1000);
+      }
+
+      async function sendCommand(type, data) {
+        const d = await ensureDevice();
+        const payload = new Uint8Array(REPORT_LEN);
+
+        if (type === 'timeSync') {
+          payload[0] = CMD_TIME_SYNC;
+          const ts = data !== undefined ? data : getCurrentTime();
+          const dv = new DataView(payload.buffer);
+          dv.setUint32(1, ts >>> 0, true);
+          console.log('[KeyboardCommands] Sending time sync:', ts);
+        } else if (type === 'runningText') {
+          payload[0] = CMD_RUNNING_TEXT;
+          let bytes = enc.encode(data || '');
+          if (bytes.length > TEXT_LEN) bytes = bytes.slice(0, TEXT_LEN);
+          payload.set(bytes, 1);
+          payload[1 + bytes.length] = 0x00;
+          console.log('[KeyboardCommands] Sending running text:', data);
+        } else {
+          throw new Error('Unknown command type: ' + type);
+        }
+
+        await d.sendReport(REPORT_ID, payload);
+      }
+
+      // Auto sync time on start
+      (async function() {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Initial time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message);
+        }
+      })();
+
+      return {
+        getCurrentTime,
+        sendCommand,
+        ensureDevice
+      };
+    })();
+  </script>
+
+  <script>
     // === Key Display Feature (isolated module) ===
     (function() {
       const KEY_DISPLAY_ENABLED = true; // Flag to enable/disable feature
