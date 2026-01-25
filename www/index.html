@@ -70,9 +70,44 @@
     .photo-view {
       cursor: none;
     }
+
+    /* Key Display Overlay */
+    .key-display-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      z-index: 9999;
+    }
+    .key-display-text {
+      font-size: 40vw;
+      font-weight: bold;
+      color: red;
+      -webkit-text-stroke: 8px blue;
+      text-stroke: 8px blue;
+      paint-order: stroke fill;
+      opacity: 0;
+      transform: scale(1);
+      transition: none;
+    }
+    .key-display-text.visible {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .key-display-text.fading {
+      opacity: 0;
+      transform: scale(1.5);
+      transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+    }
   </style>
 </head>
 <body>
+  <div class="key-display-overlay"><div class="key-display-text" id="keyDisplay"></div></div>
   <div class="welcome" id="welcome">send media in @xexecut_chat</div>
 
   <div class="photo-view" id="photoView">
@@ -87,6 +122,82 @@
   </div>
 
   <script>
+    // === Key Display Feature (isolated module) ===
+    (function() {
+      const KEY_DISPLAY_ENABLED = true; // Flag to enable/disable feature
+      if (!KEY_DISPLAY_ENABLED) return;
+
+      const DISPLAY_DURATION = 1000; // Time to show key before fading (ms)
+      const FADE_DURATION = 800; // Fade animation duration (ms)
+
+      const keyDisplayEl = document.getElementById('keyDisplay');
+      let fadeTimeout = null;
+      let removeTimeout = null;
+
+      const specialKeys = {
+        'Enter': 'Enter',
+        'Escape': 'Esc',
+        'Backspace': 'Back',
+        'Delete': 'Del',
+        'ArrowUp': '↑',
+        'ArrowDown': '↓',
+        'ArrowLeft': '←',
+        'ArrowRight': '→',
+        'Tab': 'Tab',
+        'CapsLock': 'Caps',
+        'Shift': 'Shift',
+        'Control': 'Ctrl',
+        'Alt': 'Alt',
+        'Meta': 'Cmd',
+        ' ': 'Space',
+        'Insert': 'Ins',
+        'Home': 'Home',
+        'End': 'End',
+        'PageUp': 'PgUp',
+        'PageDown': 'PgDn'
+      };
+
+      function getKeyName(e) {
+        if (specialKeys[e.key]) return specialKeys[e.key];
+        if (e.key.startsWith('F') && e.key.length <= 3) return e.key; // F1-F12
+        if (e.key.length === 1) return e.key.toUpperCase();
+        return e.key;
+      }
+
+      function showKey(keyName) {
+        // Clear any pending timeouts
+        if (fadeTimeout) clearTimeout(fadeTimeout);
+        if (removeTimeout) clearTimeout(removeTimeout);
+
+        // Reset state and show key
+        keyDisplayEl.classList.remove('fading');
+        keyDisplayEl.classList.remove('visible');
+        keyDisplayEl.textContent = keyName;
+
+        // Force reflow to restart animation
+        void keyDisplayEl.offsetWidth;
+
+        keyDisplayEl.classList.add('visible');
+
+        // Start fade after display duration
+        fadeTimeout = setTimeout(() => {
+          keyDisplayEl.classList.add('fading');
+          keyDisplayEl.classList.remove('visible');
+
+          // Remove fading class after animation completes
+          removeTimeout = setTimeout(() => {
+            keyDisplayEl.classList.remove('fading');
+          }, FADE_DURATION);
+        }, DISPLAY_DURATION);
+      }
+
+      document.addEventListener('keydown', (e) => {
+        showKey(getKeyName(e));
+      });
+    })();
+  </script>
+
+  <script>
     (function() {
       console.log('[INIT] Starting Telegram Updates viewer');
 
@@ -94,6 +205,8 @@
       const queryKey = params.get('api_key');
       const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
       const allowedChatId = params.get('chat_id') || null;
+
+      const welcomeEl = document.getElementById('welcome');
 
       console.log('[CONFIG] URL parameters:', {
         hasApiKey: !!queryKey,
@@ -103,20 +216,18 @@
 
       if (!queryKey) {
         console.error('[CONFIG] No API key found in URL - aborting');
-        document.body.innerHTML = '<div class="welcome">api_key not found in URL</div>';
+        welcomeEl.textContent = 'api_key not found in URL';
         return;
       }
 
       if (!allowedChatId) {
         console.error('[CONFIG] No chat_id found in URL - aborting');
-        document.body.innerHTML = '<div class="welcome">chat_id not found in URL</div>';
+        welcomeEl.textContent = 'chat_id not found in URL';
         return;
       }
 
       const apiKey = queryKey;
       console.log('[CONFIG] API key loaded from URL');
-
-      const welcomeEl = document.getElementById('welcome');
       const photoViewEl = document.getElementById('photoView');
       const senderEl = document.getElementById('sender');
       const photoEl = document.getElementById('photo');
@@ -126,6 +237,12 @@
       if (keepAspectRatio) {
         imageContainerEl.classList.add('keep-aspect');
       }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          imageContainerEl.classList.toggle('keep-aspect');
+        }
+      });
 
       let offset = 0;
 
@@ -144,7 +261,8 @@
           chat_id: message.chat.id,
           from: message.from.first_name,
           has_photo: !!(message.photo && message.photo.length > 0),
-          has_video: !!message.video
+          has_video: !!message.video,
+          has_video_note: !!message.video_note
         });
 
         // Filter by chat_id if specified
@@ -193,10 +311,14 @@
           fileId = message.video.file_id;
           isVideo = true;
           console.log('[DISPLAY] Detected VIDEO:', { file_id: fileId });
+        } else if (message.video_note) {
+          fileId = message.video_note.file_id;
+          isVideo = true;
+          console.log('[DISPLAY] Detected VIDEO_NOTE:', { file_id: fileId, duration: message.video_note.duration });
         }
 
         if (!fileId) {
-          console.log('[DISPLAY] Message has no photo, video, or animation - ignoring');
+          console.log('[DISPLAY] Message has no photo, video, animation, or video_note - ignoring');
         }
 
         if (fileId) {
