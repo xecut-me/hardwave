@@ -337,6 +337,8 @@ def usb_hid_poll_reports():
         timestamp = int.from_bytes(report[1:], byteorder='little')
         r = rtc.RTC()
         r.datetime = time.localtime(timestamp)
+        display_raw = False
+        display_time = True
 
     if report[0] == CMD_SET_RAW:
         display_time = False
