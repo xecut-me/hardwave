@@ -17,6 +17,7 @@
       color: #fff;
       overflow: hidden;
       padding-right: 40px;
+      cursor: none;
     }
     .welcome {
       display: flex;
@@ -66,9 +67,6 @@
     }
     #video {
       display: none;
-    }
-    .photo-view {
-      cursor: none;
     }
 
     /* Key Display Overlay */
@@ -204,6 +202,7 @@
       const params = new URLSearchParams(window.location.search);
       const queryKey = params.get('api_key');
       const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
+      const requireUsername = params.get('require_username') === '1' || params.get('require_username') === 'true';
       const allowedChatId = params.get('chat_id') || null;
 
       const welcomeEl = document.getElementById('welcome');
@@ -211,6 +210,7 @@
       console.log('[CONFIG] URL parameters:', {
         hasApiKey: !!queryKey,
         keepAspectRatio,
+        requireUsername,
         allowedChatId
       });
 
@@ -274,8 +274,8 @@
           return;
         }
 
-        // Filter out users without username
-        if (!message.from.username) {
+        // Filter out users without username (only when require_username is enabled)
+        if (requireUsername && !message.from.username) {
           console.log('[DISPLAY] Skipping message - user has no username:', {
             from: message.from.first_name,
             user_id: message.from.id
