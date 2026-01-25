@@ -167,6 +167,8 @@ scroll_last_time = time.monotonic()
 scroll_delta = 0.5
 
 display_time = True
+time_last_update = time.monotonic()
+time_update_delta = 1.0
 
 
 #
@@ -278,7 +280,7 @@ def usb_hid_send_key(key: tuple[int, int]):
         usb_keyboard.send(code)
 
 def usb_hid_poll_reports():
-    global display_buffer, display_buffer_offset, display_buffer_len, display_time
+    global display_buffer, display_buffer_offset, display_buffer_len, display_time, scroll_last_time
 
     if usb_hid_device is None:
         return
@@ -298,26 +300,14 @@ def usb_hid_poll_reports():
         display_buffer_len += 1
     
     if display_buffer_len > 0:
+        # Hide time and reset scroll timer (with small delay at first letter)
         display_time = False
+        scroll_last_time = time.monotonic() + 0.5
 
 
 #
 # MAIN
 #
-
-def scroll_text():
-    global display_buffer_offset, display_buffer_len, scroll_last_time, display_time
-
-    now = time.monotonic()
-    if now - scroll_last_time >= scroll_delta:
-        if display_buffer_len > DISPLAY_SIZE:
-            display_buffer_offset += 1
-
-        if display_buffer_offset > display_buffer_len:
-            display_buffer_len = 0  # Forgetting the message
-            display_time = True
-
-        scroll_last_time = now
 
 def show_text():
     global display_buffer, display_buffer_offset, display_buffer_len
@@ -335,9 +325,42 @@ def show_text():
     # Hide last character.
     disable_all_segments_and_digits()
 
-    # Update offset to visible user text.
-    if not display_time:
-        scroll_text()
+def update_time():
+    global display_buffer, display_buffer_len, time_last_update, time_update_delta
+
+    now = time.monotonic()
+    if time_update_delta > now - time_last_update:
+        return
+
+    localtime = time.localtime()
+
+    hour = localtime.tm_hour
+    min = localtime.tm_min
+
+    zero = ord('0')
+    display_buffer[0] = zero + (hour // 10)
+    display_buffer[1] = zero + (hour % 10)
+    display_buffer[2] = zero + (min // 10)
+    display_buffer[3] = zero + (min % 10)
+
+    display_buffer_len = 4
+    time_last_update = now
+
+def scroll_text():
+    global display_buffer_offset, display_buffer_len, scroll_last_time, display_time
+
+    now = time.monotonic()
+    if now - scroll_last_time >= scroll_delta:
+        if display_buffer_len > DISPLAY_SIZE:
+            display_buffer_offset += 1
+
+        if display_buffer_offset > display_buffer_len:
+            # Forgetting the message
+            display_buffer_offset = 0
+            display_buffer_len = 0
+            display_time = True
+
+        scroll_last_time = now
 
 while True:
     scan_keyboard()
@@ -349,3 +372,8 @@ while True:
     usb_hid_poll_reports()
 
     show_text()
+
+    if display_time:
+        update_time()
+    else:
+        scroll_text()
