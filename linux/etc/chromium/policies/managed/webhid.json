@@ -1,0 +1,5 @@
+{
+  "DefaultWebHidGuardSetting": 1,
+  "WebHidAllowAllDevicesForUrls": ["https://hardwave.tgr.rs/"],
+  "WebHidAskForUrls": ["https://hardwave.tgr.rs/"]
+}

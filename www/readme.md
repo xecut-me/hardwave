@@ -24,6 +24,12 @@ DISPLAY=:0 scrot ~/screenshot.png
 scp hardwave:/home/kiosk/screenshot.png .
 ```
 
+```bash
+ssh -L 9222:localhost:9222 hardwave
+```
+
+chrome://inspect/#devices
+
 ## Setup
 
 1. Create a Telegram bot via [@BotFather](https://t.me/BotFather) and get your API key
