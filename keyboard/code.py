@@ -142,6 +142,7 @@ KEYCODES = {
 # USB HID consts.
 CMD_SET_TEXT = 0x10
 CMD_SET_TIME = 0x12
+CMD_SET_RAW = 0x14
 
 
 #
@@ -169,6 +170,10 @@ scroll_delta = 0.5
 display_time = True
 time_last_update = time.monotonic()
 time_update_delta = 1.0
+
+display_raw = False
+raw_segments = [0, 0, 0, 0]  # 4 bytes, bits 0-6 for each digit's segments
+raw_symbols = 0  # bitmap for 12 additional symbols
 
 
 #
@@ -239,6 +244,28 @@ def show_symbol(symbol: int):
     write_segment(segment, True)
     write_digit(digit, True)
 
+def show_raw_digit(position: int, segments_byte: int):
+    if position > 3:
+        return
+
+    disable_all_segments_and_digits()
+
+    for i in range(7):
+        if segments_byte & (1 << i):
+            write_segment(i, True)
+
+    write_digit(position, True)
+
+def show_raw_symbol(symbol: int):
+    disable_all_segments_and_digits()
+
+    if symbol not in SYMBOLS:
+        return
+
+    segment, digit = SYMBOLS[symbol]
+    write_segment(segment, True)
+    write_digit(digit, True)
+
 
 #
 # KEYBOARD SCANNER
@@ -280,7 +307,7 @@ def usb_hid_send_key(key: tuple[int, int]):
         usb_keyboard.send(code)
 
 def usb_hid_poll_reports():
-    global display_buffer, display_buffer_offset, display_buffer_len, display_time, scroll_last_time
+    global display_buffer, display_buffer_offset, display_buffer_len, display_time, scroll_last_time, display_raw, raw_segments, raw_symbols
 
     if usb_hid_device is None:
         return
@@ -303,12 +330,25 @@ def usb_hid_poll_reports():
         if display_buffer_len > 0:
             # Hide time and reset scroll timer (with small delay at first letter)
             display_time = False
+            display_raw = False
             scroll_last_time = time.monotonic() + 0.5
     
     if report[0] == CMD_SET_TIME:
         timestamp = int.from_bytes(report[1:], byteorder='little')
         r = rtc.RTC()
         r.datetime = time.localtime(timestamp)
+
+    if report[0] == CMD_SET_RAW:
+        display_time = False
+        display_raw = True
+        display_buffer_len = 0
+
+        raw_segments[0] = report[1]
+        raw_segments[1] = report[2]
+        raw_segments[2] = report[3]
+        raw_segments[3] = report[4]
+
+        raw_symbols = report[5] | (report[6] << 8)
 
 
 #
@@ -329,6 +369,20 @@ def show_text():
         time.sleep(0.001)
 
     # Hide last character.
+    disable_all_segments_and_digits()
+
+def show_raw():
+    global raw_segments, raw_symbols
+
+    for i in range(DISPLAY_SIZE):
+        show_raw_digit(i, raw_segments[i])
+        time.sleep(0.001)
+
+    for symbol_id in range(12):
+        if raw_symbols & (1 << symbol_id):
+            show_raw_symbol(symbol_id)
+            time.sleep(0.001)
+
     disable_all_segments_and_digits()
 
 def update_time():
@@ -378,12 +432,15 @@ while True:
 
     usb_hid_poll_reports()
 
-    show_text()
-
-    if display_time:
-        update_time()
+    if display_raw:
+        show_raw()
     else:
-        scroll_text()
+        show_text()
+
+        if display_time:
+            update_time()
+        else:
+            scroll_text()
 
     gc.enable()
     gc.collect()

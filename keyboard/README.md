@@ -51,6 +51,37 @@
 
 Данные: Unix timestamp (секунды), uint32 little-endian
 
+### Прямое управление сегментами (Raw 7-segment)
+
+Команда: `0x14`
+
+Данные:
+- byte[1-4]: Сырые данные сегментов для 4 цифр. Каждый байт — битовая маска сегментов 0-6, бит 7 не используется.
+  ```
+  Сегменты:    0
+             -----
+          5 |     | 1
+            |  6  |
+             -----
+          4 |     | 2
+            |     |
+             -----
+               3
+  ```
+- byte[5-6]: Битовая маска дополнительных символов (12 бит, little-endian):
+  - Bit 0: TOP_DOT
+  - Bit 1: BOTTOM_DOT
+  - Bit 2: CIRCLE
+  - Bit 3: WAVES
+  - Bit 4: WEIGHT
+  - Bit 5: SPIRAL
+  - Bit 6: CELSIUS
+  - Bit 7: TEN_DOT_ONE
+  - Bit 8: FAN
+  - Bit 9: KG
+  - Bit 10: RHOMBUS
+  - Bit 11: STARS
+
 ## Прошивка
 
 ```
