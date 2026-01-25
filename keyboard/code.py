@@ -158,10 +158,15 @@ usb_hid_device = next(
 )
 usb_keyboard = Keyboard(usb_hid.devices)
 
-display_text_offset = 0
-display_buffer_size = 0
-display_buffer_max_size = 48
-display_buffer = [255 for _ in range(display_buffer_max_size)]
+display_buffer_offset = 0
+display_buffer_len = 0
+display_buffer_capacity = 48
+display_buffer = [255 for _ in range(display_buffer_capacity)]
+
+scroll_last_time = time.monotonic()
+scroll_delta = 0.5
+
+display_time = True
 
 
 #
@@ -273,6 +278,8 @@ def usb_hid_send_key(key: tuple[int, int]):
         usb_keyboard.send(code)
 
 def usb_hid_poll_reports():
+    global display_buffer, display_buffer_offset, display_buffer_len, display_time
+
     if usb_hid_device is None:
         return
 
@@ -280,29 +287,57 @@ def usb_hid_poll_reports():
     if not report:
         return
 
-    display_buffer_size = 0
+    display_buffer_offset = 0
+    display_buffer_len = 0
 
     for byte in report:
         if byte == 0:
             break
 
-        display_buffer[display_buffer_size] = byte
-        display_buffer_size += 1
+        display_buffer[display_buffer_len] = byte
+        display_buffer_len += 1
+    
+    if display_buffer_len > 0:
+        display_time = False
 
 
 #
 # MAIN
 #
 
+def scroll_text():
+    global display_buffer_offset, display_buffer_len, scroll_last_time, display_time
+
+    now = time.monotonic()
+    if now - scroll_last_time >= scroll_delta:
+        if display_buffer_len > DISPLAY_SIZE:
+            display_buffer_offset += 1
+
+        if display_buffer_offset > display_buffer_len:
+            display_buffer_len = 0  # Forgetting the message
+            display_time = True
+
+        scroll_last_time = now
+
 def show_text():
-    for pos in range(DISPLAY_SIZE):
-        i = display_text_offset + pos
-        if i < len(display_buffer):
-            show_char(pos, display_buffer[i])
-            time.sleep(0.001)
+    global display_buffer, display_buffer_offset, display_buffer_len
+
+    start = display_buffer_offset
+
+    end = display_buffer_offset + DISPLAY_SIZE
+    if end > display_buffer_len:
+        end = display_buffer_len
+
+    for i in range(start, end):
+        show_char(i - display_buffer_offset, display_buffer[i])
+        time.sleep(0.001)
 
     # Hide last character.
     disable_all_segments_and_digits()
+
+    # Update offset to visible user text.
+    if not display_time:
+        scroll_text()
 
 while True:
     scan_keyboard()

@@ -65,10 +65,7 @@
       const input = document.getElementById("t");
       input.addEventListener("pointerdown", () => { ensureDevice().catch(() => {}); }, { once: true });
       input.addEventListener("focus", () => { ensureDevice().catch(() => {}); }, { once: true });
-      input.addEventListener("input", () => {
-        // TODO: send full string: scheduleSend(input.value);
-        scheduleSend(input.value.slice(-4));
-      });
+      input.addEventListener("input", () => { scheduleSend(input.value); });
     </script>
   </body>
 </html>
