@@ -165,6 +165,15 @@
           return;
         }
 
+        // Filter out spoilered content
+        if (message.has_media_spoiler) {
+          console.log('[DISPLAY] Skipping message - has media spoiler:', {
+            from: message.from.first_name,
+            message_id: message.message_id
+          });
+          return;
+        }
+
         const sender = message.from.first_name + (message.from.username ? ' @' + message.from.username : '');
         let fileId = null;
         let isVideo = false;

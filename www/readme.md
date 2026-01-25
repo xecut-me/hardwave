@@ -44,6 +44,7 @@ scp hardwave:/home/kiosk/screenshot.png .
 - Shows sender name and username in the top left
 - Auto-plays videos and GIFs (muted, looped)
 - Long-polling for real-time updates
+- Ignores spoilered media (messages with `has_media_spoiler`)
 - All received updates are logged to browser console as JSON (for debugging)
 
 ## Examples
