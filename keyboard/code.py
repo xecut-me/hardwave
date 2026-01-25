@@ -4,6 +4,7 @@ import microcontroller
 import digitalio
 import rtc
 import usb_hid
+import gc
 
 from adafruit_hid.keyboard import Keyboard
 from adafruit_hid.keycode import Keycode
@@ -368,6 +369,7 @@ def scroll_text():
         scroll_last_time = now
 
 while True:
+    gc.disable()
     scan_keyboard()
 
     for key, is_pressed in keys_pressed.items():
@@ -382,3 +384,6 @@ while True:
         update_time()
     else:
         scroll_text()
+
+    gc.enable()
+    gc.collect()
