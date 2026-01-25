@@ -2,6 +2,7 @@ import time
 import board
 import microcontroller
 import digitalio
+import rtc
 import usb_hid
 
 from adafruit_hid.keyboard import Keyboard
@@ -138,10 +139,8 @@ KEYCODES = {
 }
 
 # USB HID consts.
-CMD_KEY = 0x01
-CMD_SET_TIME = 0x10
-CMD_SET_TEXT = 0x12
-CUSTOM_HID_REPORT_ID = 0x04
+CMD_SET_TEXT = 0x10
+CMD_SET_TIME = 0x12
 
 
 #
@@ -289,20 +288,26 @@ def usb_hid_poll_reports():
     if not report:
         return
 
-    display_buffer_offset = 0
-    display_buffer_len = 0
+    if report[0] == CMD_SET_TEXT:
+        display_buffer_offset = 0
+        display_buffer_len = 0
 
-    for byte in report:
-        if byte == 0:
-            break
+        for byte in report[1:]:
+            if byte == 0:
+                break
 
-        display_buffer[display_buffer_len] = byte
-        display_buffer_len += 1
+            display_buffer[display_buffer_len] = byte
+            display_buffer_len += 1
+        
+        if display_buffer_len > 0:
+            # Hide time and reset scroll timer (with small delay at first letter)
+            display_time = False
+            scroll_last_time = time.monotonic() + 0.5
     
-    if display_buffer_len > 0:
-        # Hide time and reset scroll timer (with small delay at first letter)
-        display_time = False
-        scroll_last_time = time.monotonic() + 0.5
+    if report[0] == CMD_SET_TIME:
+        timestamp = int.from_bytes(report[1:], byteorder='little')
+        r = rtc.RTC()
+        r.datetime = time.localtime(timestamp)
 
 
 #
