@@ -50,3 +50,9 @@
 Команда: `0x12`
 
 Данные: Unix timestamp (секунды), uint32 little-endian
+
+## Прошивка
+
+```
+circup install adafruit_hid
+```
