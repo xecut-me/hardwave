@@ -185,7 +185,8 @@
           const ts = data !== undefined ? data : getCurrentTime();
           const dv = new DataView(payload.buffer);
           dv.setUint32(1, ts >>> 0, true);
-          console.log('[KeyboardCommands] Sending time sync:', ts);
+          const d = new Date(ts * 1000);
+          console.log('[KeyboardCommands] Sending time sync:', ts, '(' + d.toISOString() + ')');
         } else if (type === 'runningText') {
           payload[0] = CMD_RUNNING_TEXT;
           let bytes = enc.encode(data || '');
@@ -420,6 +421,27 @@
           console.log('[DISPLAY] Message has no photo, video, animation, or video_note - ignoring');
         }
 
+        // Handle /display command
+        const text = message.text || message.caption || '';
+        if (text.startsWith('/display ')) {
+          const displayText = text.substring(9);
+          console.log('[DISPLAY] Received /display command:', displayText);
+          KeyboardCommands.sendCommand('runningText', displayText)
+            .then(() => {
+              console.log('[DISPLAY] Running text sent to HID');
+              return fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: message.chat.id,
+                  text: 'displayed on screen',
+                  reply_to_message_id: message.message_id
+                })
+              });
+            })
+            .catch(err => console.error('[DISPLAY] Failed to send running text:', err));
+        }
+
         if (fileId) {
           console.log('[DISPLAY] Fetching file from Telegram API...');
           fetch(`https://api.telegram.org/bot${apiKey}/getFile?file_id=${fileId}`)
@@ -450,6 +472,26 @@
                   photoEl.style.display = 'block';
                   photoEl.src = fileUrl;
                 }
+
+                // Reply "displayed" to the message
+                fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: message.chat.id,
+                    text: 'displayed',
+                    reply_to_message_id: message.message_id
+                  })
+                })
+                  .then(res => res.json())
+                  .then(reply => {
+                    if (reply.ok) {
+                      console.log('[DISPLAY] Replied "displayed" to message:', message.message_id);
+                    } else {
+                      console.error('[DISPLAY] Failed to send reply:', reply);
+                    }
+                  })
+                  .catch(err => console.error('[DISPLAY] Error sending reply:', err));
               } else {
                 console.error('[DISPLAY] Telegram API error:', data);
               }

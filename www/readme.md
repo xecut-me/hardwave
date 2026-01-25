@@ -43,15 +43,25 @@ chrome://inspect/#devices
 | `api_key` | Yes | Telegram bot token | `?api_key=123456:ABC...` |
 | `chat_id` | Yes | Only show media from this chat ID | `?chat_id=-1001234567890` |
 | `respect_aspect_ratio` | No | Preserve aspect ratio (off by default, stretches to fill) | `?respect_aspect_ratio=1` or `?respect_aspect_ratio=true` |
+| `require_username` | No | Only display media from users with a Telegram username | `?require_username=1` or `?require_username=true` |
 
 ## Features
 
-- Displays photos, GIFs, and videos sent directly to the bot
+- Displays photos, GIFs, videos, and video notes sent directly to the bot
 - Shows sender name and username in the top left
 - Auto-plays videos and GIFs (muted, looped)
 - Long-polling for real-time updates
 - Ignores spoilered media (messages with `has_media_spoiler`)
 - All received updates are logged to browser console as JSON (for debugging)
+- Press **Enter** to toggle aspect ratio preservation on/off
+- Key display overlay: shows pressed keys on screen with animated fade-out
+
+## WebHID Keyboard Integration
+
+The page includes WebHID support for a custom keyboard device (Adafruit, VID: 0x239A, PID: 0x80B4). Features:
+
+- **Time sync**: Automatically syncs time to the device on page load (Europe/Belgrade timezone)
+- **`/display <text>` command**: Send this command in the Telegram chat to display running text on the HID device
 
 ## Examples
 
@@ -61,4 +71,7 @@ index.html?api_key=123456789:ABCdefGHIjklMNOpqrsTUVwxyz&chat_id=-1001234567890
 
 # With preserved aspect ratio
 index.html?api_key=123456789:ABCdefGHIjklMNOpqrsTUVwxyz&chat_id=-1001234567890&respect_aspect_ratio=1
+
+# Only show media from users with usernames
+index.html?api_key=123456789:ABCdefGHIjklMNOpqrsTUVwxyz&chat_id=-1001234567890&require_username=1
 ```
