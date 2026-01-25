@@ -6,9 +6,6 @@
 
 Отображает фото, видео и GIF, присланные в [xexecut_chat](https://t.me/xexecut_chat). Кнопки на панели микроволновки работают как USB-клавиатура, а 4-разрядный дисплей показывает текст.
 
-<img src="./docs/front.jpg"></img><br/>
-<img src="./docs/back.jpg"></img><br/>
-
 ## История
 
 Этот девайс раньше был ноутбуком, но у него умерла клавиатура после чистки. Тогда он стал **харддверью** (harddver — от слов hardware и дверь) и висел на двери в спейс.
@@ -86,7 +83,10 @@ Standalone HTML, который напрямую работает с Telegram Bo
 - Хакспейс Xecut: https://xecut.me
 - Локация: [Google Maps](https://maps.app.goo.gl/3HHK6u5sVnd8456M7)
 
----
+## Фото
+
+<img src="./docs/front.jpg"></img><br/>
+<img src="./docs/back.jpg"></img><br/>
 
 ## Архив: harddver/
 
