@@ -482,31 +482,36 @@
             .catch(err => console.error('[DISPLAY] Failed to send running text:', err));
         }
 
-        // Handle /random command - send random bits to display
+        // Handle /random command - send 100 random raw packages
         if (text === '/random') {
-          console.log('[DISPLAY] Received /random command');
-          const randomDigits = [
-            Math.floor(Math.random() * 128),
-            Math.floor(Math.random() * 128),
-            Math.floor(Math.random() * 128),
-            Math.floor(Math.random() * 128)
-          ];
-          const randomSymbols = Math.floor(Math.random() * 4096); // 12 bits
-
-          KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols })
-            .then(() => {
-              console.log('[DISPLAY] Random raw data sent to HID');
-              return fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+          console.log('[DISPLAY] Received /random command - sending 100 packages');
+          (async () => {
+            try {
+              for (let i = 0; i < 100; i++) {
+                const randomDigits = [
+                  Math.floor(Math.random() * 128),
+                  Math.floor(Math.random() * 128),
+                  Math.floor(Math.random() * 128),
+                  Math.floor(Math.random() * 128)
+                ];
+                const randomSymbols = Math.floor(Math.random() * 4096); // 12 bits
+                await KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols });
+                console.log(`[DISPLAY] Sent random package ${i + 1}/100`);
+              }
+              console.log('[DISPLAY] All 100 random packages sent to HID');
+              await fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   chat_id: message.chat.id,
-                  text: 'random displayed',
+                  text: 'random displayed (100x)',
                   reply_to_message_id: message.message_id
                 })
               });
-            })
-            .catch(err => console.error('[DISPLAY] Failed to send random raw:', err));
+            } catch (err) {
+              console.error('[DISPLAY] Failed to send random raw:', err);
+            }
+          })();
         }
 
         if (fileId) {
