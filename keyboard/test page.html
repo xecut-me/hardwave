@@ -5,14 +5,22 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>microwave_kbd_test</title>
     <style>
+      *{box-sizing:border-box}
       html,body{height:100%;margin:0}
       body{display:flex;align-items:center;justify-content:center;padding:16px;font:16px system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+      .wrap{width:min(720px,100%);display:flex;flex-direction:column;gap:12px}
       input{width:min(720px,100%);font-size:18px;padding:12px 14px;border:1px solid #bbb;border-radius:10px;outline:none}
       input:focus{border-color:#4a90e2;box-shadow:0 0 0 3px rgba(74,144,226,.2)}
+      button{width:100%;font-size:16px;padding:8px 14px;border:1px solid #bbb;border-radius:10px;background:#fff;cursor:pointer}
+      button:hover{border-color:#4a90e2}
+      button:active{transform:translateY(1px)}
     </style>
   </head>
   <body>
-    <input id="t" type="text" autocomplete="off" spellcheck="false" />
+    <div class="wrap">
+      <input id="t" type="text" autocomplete="off" spellcheck="false" />
+      <button id="syncTime" type="button">синхронизировать время</button>
+    </div>
     <script>
       const VID = 0x239A;
       const PID = 0x80B4;
@@ -20,11 +28,16 @@
       const USAGE = 0x01;
       const REPORT_ID = 0x04;
       const REPORT_LEN = 48;
+      const TEXT_LEN = 46;
       const DEBOUNCE_MS = 200;
       const enc = new TextEncoder();
       let dev = null;
       let timer = null;
       let lastSent = null;
+
+      function logError(e) {
+        console.error(e);
+      }
 
       async function ensureDevice() {
         if (!("hid" in navigator)) throw new Error("WebHID not available");
@@ -42,9 +55,11 @@
 
       function buildPayload(text) {
         let bytes = enc.encode(text);
-        if (bytes.length > REPORT_LEN) bytes = bytes.slice(0, REPORT_LEN);
+        if (bytes.length > TEXT_LEN) bytes = bytes.slice(0, TEXT_LEN);
         const out = new Uint8Array(REPORT_LEN);
-        out.set(bytes, 0);
+        out[0] = 0x10;
+        out.set(bytes, 1);
+        out[1 + bytes.length] = 0x00;
         return out;
       }
 
@@ -57,15 +72,65 @@
         await d.sendReport(REPORT_ID, payload);
       }
 
+      function belgradeUnixSecondsNow() {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Belgrade",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }).formatToParts(now);
+
+        const map = Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+        const y = Number(map.year);
+        const mo = Number(map.month);
+        const d = Number(map.day);
+        const h = Number(map.hour);
+        const mi = Number(map.minute);
+        const s = Number(map.second);
+
+        return Math.floor(Date.UTC(y, mo - 1, d, h, mi, s) / 1000);
+      }
+
+      function buildTimePayload(unixSeconds) {
+        const out = new Uint8Array(REPORT_LEN);
+        out[0] = 0x12;
+        const dv = new DataView(out.buffer);
+        dv.setUint32(1, unixSeconds >>> 0, true); // little-endian
+        return out;
+      }
+
+      async function syncTime() {
+        const d = await ensureDevice();
+        const ts = belgradeUnixSecondsNow();
+        const payload = buildTimePayload(ts);
+        await d.sendReport(REPORT_ID, payload);
+      }
+
       function scheduleSend(text) {
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => { sendText(text).catch(() => {}); }, DEBOUNCE_MS);
+        timer = setTimeout(() => { sendText(text).catch(logError); }, DEBOUNCE_MS);
       }
 
       const input = document.getElementById("t");
-      input.addEventListener("pointerdown", () => { ensureDevice().catch(() => {}); }, { once: true });
-      input.addEventListener("focus", () => { ensureDevice().catch(() => {}); }, { once: true });
+      input.addEventListener("pointerdown", () => { ensureDevice().catch(logError); }, { once: true });
+      input.addEventListener("focus", () => { ensureDevice().catch(logError); }, { once: true });
       input.addEventListener("input", () => { scheduleSend(input.value); });
+
+      const syncBtn = document.getElementById("syncTime");
+      syncBtn.addEventListener("pointerdown", () => { ensureDevice().catch(logError); }, { once: true });
+      syncBtn.addEventListener("click", () => { syncTime().catch(logError); });
+
+      window.addEventListener("unhandledrejection", (event) => {
+        console.error(event.reason);
+      });
+      window.addEventListener("error", (event) => {
+        console.error(event.error || event.message);
+      });
     </script>
   </body>
 </html>
