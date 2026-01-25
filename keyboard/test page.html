@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>microwave_kbd_test</title>
+    <style>
+      html,body{height:100%;margin:0}
+      body{display:flex;align-items:center;justify-content:center;padding:16px;font:16px system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+      input{width:min(720px,100%);font-size:18px;padding:12px 14px;border:1px solid #bbb;border-radius:10px;outline:none}
+      input:focus{border-color:#4a90e2;box-shadow:0 0 0 3px rgba(74,144,226,.2)}
+    </style>
+  </head>
+  <body>
+    <input id="t" type="text" autocomplete="off" spellcheck="false" />
+    <script>
+      const VID = 0x239A;
+      const PID = 0x80B4;
+      const USAGE_PAGE = 0xFF00;
+      const USAGE = 0x01;
+      const REPORT_ID = 0x04;
+      const REPORT_LEN = 48;
+      const DEBOUNCE_MS = 200;
+      const enc = new TextEncoder();
+      let dev = null;
+      let timer = null;
+      let lastSent = null;
+
+      async function ensureDevice() {
+        if (!("hid" in navigator)) throw new Error("WebHID not available");
+        if (dev && dev.opened) return dev;
+        const granted = await navigator.hid.getDevices();
+        dev = granted.find(d => d.vendorId === VID && d.productId === PID) || null;
+        if (!dev) {
+          const picked = await navigator.hid.requestDevice({ filters: [{ vendorId: VID, productId: PID, usagePage: USAGE_PAGE, usage: USAGE }] });
+          dev = picked && picked[0] ? picked[0] : null;
+        }
+        if (!dev) throw new Error("No device selected");
+        if (!dev.opened) await dev.open();
+        return dev;
+      }
+
+      function buildPayload(text) {
+        let bytes = enc.encode(text);
+        if (bytes.length > REPORT_LEN) bytes = bytes.slice(0, REPORT_LEN);
+        const out = new Uint8Array(REPORT_LEN);
+        out.set(bytes, 0);
+        return out;
+      }
+
+      async function sendText(text) {
+        const d = await ensureDevice();
+        const payload = buildPayload(text);
+        const sig = Array.from(payload).join(",");
+        if (sig === lastSent) return;
+        lastSent = sig;
+        await d.sendReport(REPORT_ID, payload);
+      }
+
+      function scheduleSend(text) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => { sendText(text).catch(() => {}); }, DEBOUNCE_MS);
+      }
+
+      const input = document.getElementById("t");
+      input.addEventListener("pointerdown", () => { ensureDevice().catch(() => {}); }, { once: true });
+      input.addEventListener("focus", () => { ensureDevice().catch(() => {}); }, { once: true });
+      input.addEventListener("input", () => {
+        // TODO: send full string: scheduleSend(input.value);
+        scheduleSend(input.value.slice(-4));
+      });
+    </script>
+  </body>
+</html>
