@@ -61,7 +61,7 @@ chrome://inspect/#devices
 The page includes WebHID support for a custom keyboard device (Adafruit, VID: 0x239A, PID: 0x80B4). Features:
 
 - **Time sync**: Automatically syncs time to the device on page load (Europe/Belgrade timezone)
-- **`/display <text>` command**: Send this command in the Telegram chat to display running text on the HID device
+- **`/display <text>` command**: Send this command in the Telegram chat to display running text on the HID device. Text must be at least 5 characters and contain only `a-zA-Z0-9-_` and spaces.
 
 ## Examples
 

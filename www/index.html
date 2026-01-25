@@ -132,6 +132,7 @@
 
       const CMD_RUNNING_TEXT = 0x10;
       const CMD_TIME_SYNC = 0x12;
+      const CMD_RAW = 0x14;
 
       const enc = new TextEncoder();
       let dev = null;
@@ -194,6 +195,18 @@
           payload.set(bytes, 1);
           payload[1 + bytes.length] = 0x00;
           console.log('[KeyboardCommands] Sending running text:', data);
+        } else if (type === 'raw') {
+          payload[0] = CMD_RAW;
+          // data should be { digits: [4 bytes], symbols: number (12-bit) }
+          const digits = data.digits || [0, 0, 0, 0];
+          const symbols = data.symbols || 0;
+          payload[1] = digits[0] & 0x7F;
+          payload[2] = digits[1] & 0x7F;
+          payload[3] = digits[2] & 0x7F;
+          payload[4] = digits[3] & 0x7F;
+          payload[5] = symbols & 0xFF;
+          payload[6] = (symbols >> 8) & 0x0F;
+          console.log('[KeyboardCommands] Sending raw:', { digits, symbols });
         } else {
           throw new Error('Unknown command type: ' + type);
         }
@@ -201,7 +214,7 @@
         await d.sendReport(REPORT_ID, payload);
       }
 
-      // Auto sync time on start
+      // Auto sync time on start and every hour
       (async function() {
         try {
           await sendCommand('timeSync');
@@ -210,6 +223,16 @@
           console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message);
         }
       })();
+
+      // Sync time every hour
+      setInterval(async () => {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Hourly time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Hourly time sync failed:', e.message);
+        }
+      }, 60 * 60 * 1000);
 
       return {
         getCurrentTime,
@@ -426,6 +449,23 @@
         if (text.startsWith('/display ')) {
           const displayText = text.substring(9);
           console.log('[DISPLAY] Received /display command:', displayText);
+
+          // Validate against allowlist: a-zA-Z0-9-_ and space only
+          const allowlistRegex = /^[a-zA-Z0-9\-_ ]{5,}$/;
+          if (!allowlistRegex.test(displayText)) {
+            console.log('[DISPLAY] Text contains disallowed characters:', displayText);
+            fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: message.chat.id,
+                text: 'not allowed',
+                reply_to_message_id: message.message_id
+              })
+            }).catch(err => console.error('[DISPLAY] Failed to send not allowed reply:', err));
+            return;
+          }
+
           KeyboardCommands.sendCommand('runningText', displayText)
             .then(() => {
               console.log('[DISPLAY] Running text sent to HID');
@@ -440,6 +480,33 @@
               });
             })
             .catch(err => console.error('[DISPLAY] Failed to send running text:', err));
+        }
+
+        // Handle /random command - send random bits to display
+        if (text === '/random') {
+          console.log('[DISPLAY] Received /random command');
+          const randomDigits = [
+            Math.floor(Math.random() * 128),
+            Math.floor(Math.random() * 128),
+            Math.floor(Math.random() * 128),
+            Math.floor(Math.random() * 128)
+          ];
+          const randomSymbols = Math.floor(Math.random() * 4096); // 12 bits
+
+          KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols })
+            .then(() => {
+              console.log('[DISPLAY] Random raw data sent to HID');
+              return fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: message.chat.id,
+                  text: 'random displayed',
+                  reply_to_message_id: message.message_id
+                })
+              });
+            })
+            .catch(err => console.error('[DISPLAY] Failed to send random raw:', err));
         }
 
         if (fileId) {
