@@ -32,50 +32,52 @@ KEYBOARD_COLUMNS_PINS = [
     board.P0_09, board.P0_10, board.P1_11
 ]
 
-# Map ASCII char to segments.
+# Map ASCII char to segments bitmap.
 FONT = {
-    ord("0"): [0,1,2,3,4,5],
-    ord("1"): [1,2],
-    ord("2"): [0,1,3,4,6],
-    ord("3"): [0,1,2,3,6],
-    ord("4"): [1,2,5,6],
-    ord("5"): [0,2,3,5,6],
-    ord("6"): [0,2,3,4,5,6],
-    ord("7"): [0,1,2],
-    ord("8"): [0,1,2,3,4,5,6],
-    ord("9"): [0,1,2,3,5,6],
-    ord(" "): [],
-    ord("A"): [0,1,2,4,5,6],
-    ord("B"): [2,3,4,5,6],
-    ord("C"): [3,4,6],
-    ord("D"): [1,2,3,4,6],
-    ord("E"): [0,3,4,5,6],
-    ord("F"): [0,4,5,6],
-    ord("G"): [0,2,3,4,5],
-    ord("H"): [2,4,5,6],
-    ord("I"): [2],
-    ord("J"): [1,2,3,4],
-    ord("K"): [0,2,4,5,6],
-    ord("L"): [3,4,5],
-    ord("M"): [0,1,2,4,5],
-    ord("N"): [2,4,6],
-    ord("O"): [2,3,4,6],
-    ord("P"): [0,1,4,5,6],
-    ord("Q"): [0,1,2,5,6],
-    ord("R"): [4,6],
-    ord("S"): [2,3,5,6],
-    ord("T"): [3,4,5,6],
-    ord("U"): [2,3,4],
-    ord("V"): [1,2,3,4,5],
-    ord("W"): [1,2,3,4,5,6],
-    ord("X"): [1,2,4,5,6],
-    ord("Y"): [1,2,3,5,6],
-    ord("Z"): [0,1,3,4],
-    ord("-"): [6],
-    ord("_"): [3],
+    ord("0"): 0b0111111,
+    ord("1"): 0b0000110,
+    ord("2"): 0b1011011,
+    ord("3"): 0b1001111,
+    ord("4"): 0b1100110,
+    ord("5"): 0b1101101,
+    ord("6"): 0b1111101,
+    ord("7"): 0b0000111,
+    ord("8"): 0b1111111,
+    ord("9"): 0b1101111,
+    ord(" "): 0b0000000,
+    ord("A"): 0b1110111,
+    ord("B"): 0b1111100,
+    ord("C"): 0b1011000,
+    ord("D"): 0b1011110,
+    ord("E"): 0b1111001,
+    ord("F"): 0b1110001,
+    ord("G"): 0b0111101,
+    ord("H"): 0b1110100,
+    ord("I"): 0b0000100,
+    ord("J"): 0b0011110,
+    ord("K"): 0b1110110,
+    ord("L"): 0b0111000,
+    ord("M"): 0b0110111,
+    ord("N"): 0b1010100,
+    ord("O"): 0b1011100,
+    ord("P"): 0b1110011,
+    ord("Q"): 0b1100111,
+    ord("R"): 0b1010000,
+    ord("S"): 0b1101100,
+    ord("T"): 0b1111000,
+    ord("U"): 0b0011100,
+    ord("V"): 0b0111110,
+    ord("W"): 0b1111110,
+    ord("X"): 0b1110110,
+    ord("Y"): 0b1101110,
+    ord("Z"): 0b0011011,
+    ord("-"): 0b1000000,
+    ord("_"): 0b0001000,
 }
 
 # Map symbol to segment and digit.
+TOTAL_SYMBOLS = 3 * 4
+
 class Symbol:
     TOP_DOT = 0
     BOTTOM_DOT = 1
@@ -172,7 +174,7 @@ time_last_update = time.monotonic()
 time_update_delta = 1.0
 
 display_raw = False
-raw_segments = [0, 0, 0, 0]  # 4 bytes, bits 0-6 for each digit's segments
+raw_segments = [0, 0, 0, 0]
 raw_symbols = 0  # bitmap for 12 additional symbols
 
 
@@ -217,52 +219,29 @@ def disable_all_segments_and_digits():
 # DISPLAY CONTROL
 #
 
-def show_char(position: int, char: int):
-    if position > 3:
-        return
-
+def display_segments_byte(position: int, segments_byte: int):
     disable_all_segments_and_digits()
 
-    # Convert lowercase to uppercase.
+    for i in range(7):
+        write_segment(i, segments_byte & (1 << i))
+
+    write_digit(position, True)
+
+def display_char(position: int, char: int):    # Convert lowercase to uppercase.
     if 97 <= char and char <= 122:
         char = char - 32
 
     # All unknown characters will be replaced with spaces.
-    for i in FONT.get(char, []):
-        write_segment(i, True)
+    display_segments_byte(position, FONT.get(char, 0))
 
-    write_digit(position, True)
-
-def show_symbol(symbol: int):
-    disable_all_segments_and_digits()
-
+def display_symbol(symbol: int):
     if symbol not in SYMBOLS:
         return
 
-    segment, digit = SYMBOLS[symbol]
-
-    write_segment(segment, True)
-    write_digit(digit, True)
-
-def show_raw_digit(position: int, segments_byte: int):
-    if position > 3:
-        return
-
     disable_all_segments_and_digits()
 
-    for i in range(7):
-        if segments_byte & (1 << i):
-            write_segment(i, True)
-
-    write_digit(position, True)
-
-def show_raw_symbol(symbol: int):
-    disable_all_segments_and_digits()
-
-    if symbol not in SYMBOLS:
-        return
-
     segment, digit = SYMBOLS[symbol]
+
     write_segment(segment, True)
     write_digit(digit, True)
 
@@ -316,10 +295,11 @@ def usb_hid_poll_reports():
     if not report:
         return
 
-    if report[0] == CMD_SET_TEXT:
-        display_buffer_offset = 0
-        display_buffer_len = 0
+    display_buffer[0] = 0x00
+    display_buffer_offset = 0
+    display_buffer_len = 0
 
+    if report[0] == CMD_SET_TEXT:
         for byte in report[1:]:
             if byte == 0:
                 break
@@ -332,25 +312,25 @@ def usb_hid_poll_reports():
             display_time = False
             display_raw = False
             scroll_last_time = time.monotonic() + 0.5
-    
-    if report[0] == CMD_SET_TIME:
+
+    elif report[0] == CMD_SET_TIME:
         timestamp = int.from_bytes(report[1:], byteorder='little')
-        r = rtc.RTC()
-        r.datetime = time.localtime(timestamp)
+        rtc.RTC().datetime = time.localtime(timestamp)
+
         display_raw = False
         display_time = True
 
-    if report[0] == CMD_SET_RAW:
-        display_time = False
-        display_raw = True
-        display_buffer_len = 0
 
+    elif report[0] == CMD_SET_RAW:
         raw_segments[0] = report[1]
         raw_segments[1] = report[2]
         raw_segments[2] = report[3]
         raw_segments[3] = report[4]
 
         raw_symbols = report[5] | (report[6] << 8)
+
+        display_time = False
+        display_raw = True
 
 
 #
@@ -367,22 +347,21 @@ def show_text():
         end = display_buffer_len
 
     for i in range(start, end):
-        show_char(i - display_buffer_offset, display_buffer[i])
+        display_char(i - display_buffer_offset, display_buffer[i])
         time.sleep(0.001)
 
-    # Hide last character.
     disable_all_segments_and_digits()
 
 def show_raw():
     global raw_segments, raw_symbols
 
     for i in range(DISPLAY_SIZE):
-        show_raw_digit(i, raw_segments[i])
+        display_segments_byte(i, raw_segments[i])
         time.sleep(0.001)
 
-    for symbol_id in range(12):
+    for symbol_id in range(TOTAL_SYMBOLS):
         if raw_symbols & (1 << symbol_id):
-            show_raw_symbol(symbol_id)
+            display_symbol(symbol_id)
             time.sleep(0.001)
 
     disable_all_segments_and_digits()
@@ -436,13 +415,12 @@ while True:
 
     if display_raw:
         show_raw()
+    elif display_time:
+        update_time()
+        show_text()
     else:
         show_text()
-
-        if display_time:
-            update_time()
-        else:
-            scroll_text()
+        scroll_text()
 
     gc.enable()
     gc.collect()
