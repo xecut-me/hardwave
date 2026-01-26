@@ -172,6 +172,7 @@ scroll_delta = 0.5
 display_time = True
 time_last_update = time.monotonic()
 time_update_delta = 1.0
+time_show_dots = False
 
 display_raw = False
 raw_segments = [0, 0, 0, 0]
@@ -352,6 +353,13 @@ def show_text():
     for i in range(start, end):
         display_char(i - display_buffer_offset, display_buffer[i])
         time.sleep(0.001)
+    
+    if display_time and time_show_dots:
+        display_symbol(Symbol.TOP_DOT)
+        time.sleep(0.001)
+
+        display_symbol(Symbol.BOTTOM_DOT)
+        time.sleep(0.001)
 
     disable_all_segments_and_digits()
 
@@ -370,11 +378,13 @@ def show_raw():
     disable_all_segments_and_digits()
 
 def update_time():
-    global display_buffer, display_buffer_len, time_last_update, time_update_delta
+    global display_buffer, display_buffer_len, time_last_update, time_update_delta, time_show_dots
 
     now = time.monotonic()
     if time_update_delta > now - time_last_update:
         return
+
+    time_show_dots = not time_show_dots
 
     localtime = time.localtime()
 
