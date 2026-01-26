@@ -142,10 +142,10 @@ KEYCODES = {
 }
 
 # USB HID consts.
-CMD_SET_TEXT = 0x10
-CMD_SET_TIME = 0x12
-CMD_SET_RAW = 0x14
-
+CMD_SET_TEXT  = 0x10
+CMD_SET_TIME  = 0x12
+CMD_SHOW_TIME = 0x13
+CMD_SET_RAW   = 0x14
 
 #
 # DEVICE STATE
@@ -320,6 +320,9 @@ def usb_hid_poll_reports():
         display_raw = False
         display_time = True
 
+    elif report[0] == CMD_SHOW_TIME:
+        display_raw = False
+        display_time = True
 
     elif report[0] == CMD_SET_RAW:
         raw_segments[0] = report[1]
