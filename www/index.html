@@ -476,28 +476,28 @@
           const allowlistRegex = /^[a-zA-Z0-9\-_ ]{5,}$/;
           if (!allowlistRegex.test(displayText)) {
             console.log('[DISPLAY] Text contains disallowed characters:', displayText);
-            fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+            fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 chat_id: message.chat.id,
-                text: 'not allowed',
-                reply_to_message_id: message.message_id
+                message_id: message.message_id,
+                reaction: [{ type: 'emoji', emoji: '👎' }]
               })
-            }).catch(err => console.error('[DISPLAY] Failed to send not allowed reply:', err));
+            }).catch(err => console.error('[DISPLAY] Failed to send reaction:', err));
             return;
           }
 
           KeyboardCommands.sendCommand('runningText', displayText)
             .then(() => {
               console.log('[DISPLAY] Running text sent to HID');
-              return fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+              return fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   chat_id: message.chat.id,
-                  text: 'displayed on screen',
-                  reply_to_message_id: message.message_id
+                  message_id: message.message_id,
+                  reaction: [{ type: 'emoji', emoji: '👍' }]
                 })
               });
             })
@@ -521,13 +521,13 @@
                 console.log(`[DISPLAY] Sent random package ${i + 1}/100`);
               }
               console.log('[DISPLAY] All 100 random packages sent to HID');
-              await fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+              await fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   chat_id: message.chat.id,
-                  text: 'random displayed (100x)',
-                  reply_to_message_id: message.message_id
+                  message_id: message.message_id,
+                  reaction: [{ type: 'emoji', emoji: '👍' }]
                 })
               });
             } catch (err) {
@@ -567,25 +567,25 @@
                   photoEl.src = fileUrl;
                 }
 
-                // Reply "displayed" to the message
-                fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+                // React to the message with thumbs up
+                fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     chat_id: message.chat.id,
-                    text: 'displayed',
-                    reply_to_message_id: message.message_id
+                    message_id: message.message_id,
+                    reaction: [{ type: 'emoji', emoji: '👍' }]
                   })
                 })
                   .then(res => res.json())
                   .then(reply => {
                     if (reply.ok) {
-                      console.log('[DISPLAY] Replied "displayed" to message:', message.message_id);
+                      console.log('[DISPLAY] Reacted to message:', message.message_id);
                     } else {
-                      console.error('[DISPLAY] Failed to send reply:', reply);
+                      console.error('[DISPLAY] Failed to send reaction:', reply);
                     }
                   })
-                  .catch(err => console.error('[DISPLAY] Error sending reply:', err));
+                  .catch(err => console.error('[DISPLAY] Error sending reaction:', err));
               } else {
                 console.error('[DISPLAY] Telegram API error:', data);
               }
