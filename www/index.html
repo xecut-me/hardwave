@@ -512,34 +512,27 @@
           const displayText = text.substring(9);
           console.log('[DISPLAY] Received /display command:', displayText);
 
-          try {
-            KeyboardCommands.sendCommand('runningText', displayText)
-              .then(() => {
-                console.log('[DISPLAY] Running text sent to HID');
-                return fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    chat_id: message.chat.id,
-                    message_id: message.message_id,
-                    reaction: [{ type: 'emoji', emoji: '👍' }]
-                  })
-                });
-              })
-              .catch(err => console.error('[DISPLAY] Failed to send running text:', err));
-          } catch(e) {
-            console.log('[DISPLAY] ', e.toString());
+          const sendReaction = (emoji) => {
             fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 chat_id: message.chat.id,
                 message_id: message.message_id,
-                reaction: [{ type: 'emoji', emoji: '👎' }]
+                reaction: [{ type: 'emoji', emoji }]
               })
             }).catch(err => console.error('[DISPLAY] Failed to send reaction:', err));
-            return;
-          }
+          };
+
+          KeyboardCommands.sendCommand('runningText', displayText)
+            .then(() => {
+              console.log('[DISPLAY] Running text sent to HID');
+              sendReaction('👍');
+            })
+            .catch(err => {
+              console.error('[DISPLAY] Failed to send running text:', err);
+              sendReaction('👎');
+            });
         }
 
         // Handle /random command - send 100 random raw packages
