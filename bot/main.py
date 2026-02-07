@@ -189,7 +189,7 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     params = request.query
     provided_key = params.get("api_key", "")
 
-    ws = web.WebSocketResponse()
+    ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
 
     if not hmac.compare_digest(provided_key, HARDWAVE_API_KEY):
