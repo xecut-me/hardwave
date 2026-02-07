@@ -133,7 +133,10 @@ async def handle_media(update: Update, context) -> None:
 
     logger.info("Detected %s from %s", media_type.upper(), msg.from_user.first_name)
     file = await context.bot.get_file(file_id)
-    file_url = f"https://api.telegram.org/file/bot{TELEGRAM_API_KEY}/{file.file_path}"
+    if file.file_path.startswith("http"):
+        file_url = file.file_path
+    else:
+        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_API_KEY}/{file.file_path}"
 
     state.current_message = {"message": {"url": file_url, "type": media_type}}
     await send_ws(state.current_message)
