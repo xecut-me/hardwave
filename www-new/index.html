@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>HardWave - Telegram Media Display</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: sans-serif;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+      padding-right: 40px;
+      cursor: none;
+    }
+    .welcome {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+      font-size: 50px;
+      text-align: center;
+    }
+    .photo-view {
+      display: none;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px;
+      flex-shrink: 0;
+    }
+    .sender {
+      font-size: 50px;
+      font-weight: bold;
+    }
+    .bot-name {
+      font-size: 50px;
+    }
+    .image-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+    .image-container img,
+    .image-container video {
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+    }
+    .image-container.keep-aspect img,
+    .image-container.keep-aspect video {
+      object-fit: contain;
+    }
+    #video {
+      display: none;
+    }
+
+    /* Key Display Overlay */
+    .key-display-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      z-index: 9999;
+    }
+    .key-display-text {
+      font-size: 40vw;
+      font-weight: bold;
+      color: red;
+      -webkit-text-stroke: 8px blue;
+      text-stroke: 8px blue;
+      paint-order: stroke fill;
+      opacity: 0;
+      transform: scale(1);
+      transition: none;
+    }
+    .key-display-text.visible {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .key-display-text.fading {
+      opacity: 0;
+      transform: scale(1.5);
+      transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <div class="key-display-overlay"><div class="key-display-text" id="keyDisplay"></div></div>
+  <div class="welcome" id="welcome">send media in @xexecut_chat</div>
+
+  <div class="photo-view" id="photoView">
+    <div class="header">
+      <div class="sender" id="sender"></div>
+      <div class="bot-name">send media in @xexecut_chat</div>
+    </div>
+    <div class="image-container">
+      <img id="photo" src="" alt="Photo">
+      <video id="video" src="" autoplay loop muted playsinline></video>
+    </div>
+  </div>
+
+  <script>
+    // === Keyboard Command Module ===
+    const KeyboardCommands = (function() {
+      const VID = 0x239A;
+      const PID = 0x80B4;
+      const USAGE_PAGE = 0xFF00;
+      const USAGE = 0x01;
+      const REPORT_ID = 0x04;
+      const REPORT_LEN = 48;
+      const TEXT_LEN = 46;
+
+      const CMD_RUNNING_TEXT = 0x10;
+      const CMD_TIME_SYNC = 0x12;
+      const CMD_RAW = 0x14;
+
+      const enc = new TextEncoder();
+      let dev = null;
+
+      async function ensureDevice() {
+        if (!("hid" in navigator)) throw new Error("WebHID not available");
+        if (dev && dev.opened) return dev;
+        const granted = await navigator.hid.getDevices();
+        dev = granted.find(d => d.vendorId === VID && d.productId === PID) || null;
+        if (!dev) {
+          const picked = await navigator.hid.requestDevice({
+            filters: [{ vendorId: VID, productId: PID, usagePage: USAGE_PAGE, usage: USAGE }]
+          });
+          dev = picked && picked[0] ? picked[0] : null;
+        }
+        if (!dev) throw new Error("No device selected");
+        if (!dev.opened) await dev.open();
+        return dev;
+      }
+
+      function getCurrentTime() {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Belgrade",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }).formatToParts(now);
+
+        const map = Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+        const y = Number(map.year);
+        const mo = Number(map.month);
+        const d = Number(map.day);
+        const h = Number(map.hour);
+        const mi = Number(map.minute);
+        const s = Number(map.second);
+
+        return Math.floor(Date.UTC(y, mo - 1, d, h, mi, s) / 1000);
+      }
+
+      async function sendCommand(type, data) {
+        const d = await ensureDevice();
+        const payload = new Uint8Array(REPORT_LEN);
+
+        if (type === 'timeSync') {
+          payload[0] = CMD_TIME_SYNC;
+          const ts = data !== undefined ? data : getCurrentTime();
+          const dv = new DataView(payload.buffer);
+          dv.setUint32(1, ts >>> 0, true);
+          const d = new Date(ts * 1000);
+          console.log('[KeyboardCommands] Sending time sync:', ts, '(' + d.toISOString() + ')');
+        } else if (type === 'runningText') {
+          payload[0] = CMD_RUNNING_TEXT;
+          let bytes = enc.encode(data || '');
+          if (bytes.length > TEXT_LEN) bytes = bytes.slice(0, TEXT_LEN);
+          payload.set(bytes, 1);
+          payload[1 + bytes.length] = 0x00;
+          console.log('[KeyboardCommands] Sending running text:', data);
+        } else if (type === 'raw') {
+          payload[0] = CMD_RAW;
+          // data should be { digits: [4 bytes], symbols: number (12-bit) }
+          const digits = data.digits || [0, 0, 0, 0];
+          const symbols = data.symbols || 0;
+          payload[1] = digits[0] & 0x7F;
+          payload[2] = digits[1] & 0x7F;
+          payload[3] = digits[2] & 0x7F;
+          payload[4] = digits[3] & 0x7F;
+          payload[5] = symbols & 0xFF;
+          payload[6] = (symbols >> 8) & 0x0F;
+          console.log('[KeyboardCommands] Sending raw:', { digits, symbols });
+        } else {
+          throw new Error('Unknown command type: ' + type);
+        }
+
+        await d.sendReport(REPORT_ID, payload);
+      }
+
+      // Auto sync time on start and every hour
+      (async function() {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Initial time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message);
+        }
+      })();
+
+      // Sync time every hour
+      setInterval(async () => {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Hourly time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Hourly time sync failed:', e.message);
+        }
+      }, 60 * 60 * 1000);
+
+      return {
+        getCurrentTime,
+        sendCommand,
+        ensureDevice
+      };
+    })();
+  </script>
+
+  <script>
+    // === Key Display Feature (isolated module) ===
+    (function() {
+      const KEY_DISPLAY_ENABLED = true; // Flag to enable/disable feature
+      if (!KEY_DISPLAY_ENABLED) return;
+
+      const DISPLAY_DURATION = 1000; // Time to show key before fading (ms)
+      const FADE_DURATION = 800; // Fade animation duration (ms)
+
+      const keyDisplayEl = document.getElementById('keyDisplay');
+      let fadeTimeout = null;
+      let removeTimeout = null;
+
+      const specialKeys = {
+        'Enter': 'Enter',
+        'Escape': 'Esc',
+        'Backspace': 'Back',
+        'Delete': 'Del',
+        'ArrowUp': '↑',
+        'ArrowDown': '↓',
+        'ArrowLeft': '←',
+        'ArrowRight': '→',
+        'Tab': 'Tab',
+        'CapsLock': 'Caps',
+        'Shift': 'Shift',
+        'Control': 'Ctrl',
+        'Alt': 'Alt',
+        'Meta': 'Cmd',
+        ' ': 'Space',
+        'Insert': 'Ins',
+        'Home': 'Home',
+        'End': 'End',
+        'PageUp': 'PgUp',
+        'PageDown': 'PgDn'
+      };
+
+      function getKeyName(e) {
+        if (specialKeys[e.key]) return specialKeys[e.key];
+        if (e.key.startsWith('F') && e.key.length <= 3) return e.key; // F1-F12
+        if (e.key.length === 1) return e.key.toUpperCase();
+        return e.key;
+      }
+
+      function showKey(keyName) {
+        // Clear any pending timeouts
+        if (fadeTimeout) clearTimeout(fadeTimeout);
+        if (removeTimeout) clearTimeout(removeTimeout);
+
+        // Reset state and show key
+        keyDisplayEl.classList.remove('fading');
+        keyDisplayEl.classList.remove('visible');
+        keyDisplayEl.textContent = keyName;
+
+        // Force reflow to restart animation
+        void keyDisplayEl.offsetWidth;
+
+        keyDisplayEl.classList.add('visible');
+
+        // Start fade after display duration
+        fadeTimeout = setTimeout(() => {
+          keyDisplayEl.classList.add('fading');
+          keyDisplayEl.classList.remove('visible');
+
+          // Remove fading class after animation completes
+          removeTimeout = setTimeout(() => {
+            keyDisplayEl.classList.remove('fading');
+          }, FADE_DURATION);
+        }, DISPLAY_DURATION);
+      }
+
+      document.addEventListener('keydown', (e) => {
+        showKey(getKeyName(e));
+      });
+    })();
+  </script>
+
+  <script>
+    (function() {
+      console.log('[INIT] Starting WebSocket viewer');
+
+      const params = new URLSearchParams(window.location.search);
+      const wsHost = params.get('ws_host');
+      const apiKey = params.get('api_key');
+      const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
+
+      const welcomeEl = document.getElementById('welcome');
+      const photoViewEl = document.getElementById('photoView');
+      const senderEl = document.getElementById('sender');
+      const photoEl = document.getElementById('photo');
+      const videoEl = document.getElementById('video');
+      const imageContainerEl = document.querySelector('.image-container');
+
+      console.log('[CONFIG] URL parameters:', {
+        hasWsHost: !!wsHost,
+        hasApiKey: !!apiKey,
+        keepAspectRatio
+      });
+
+      if (!wsHost) {
+        console.error('[CONFIG] No ws_host found in URL - aborting');
+        welcomeEl.textContent = 'ws_host not found in URL';
+        return;
+      }
+
+      if (!apiKey) {
+        console.error('[CONFIG] No api_key found in URL - aborting');
+        welcomeEl.textContent = 'api_key not found in URL';
+        return;
+      }
+
+      if (keepAspectRatio) {
+        imageContainerEl.classList.add('keep-aspect');
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          imageContainerEl.classList.toggle('keep-aspect');
+        }
+      });
+
+      function displayMedia(url, type) {
+        if (type === 'empty' || !url) {
+          console.log('[DISPLAY] Clearing display');
+          photoViewEl.style.display = 'none';
+          welcomeEl.style.display = 'flex';
+          videoEl.pause();
+          videoEl.src = '';
+          photoEl.src = '';
+          return;
+        }
+
+        console.log('[DISPLAY] Showing media:', { type, url });
+        welcomeEl.style.display = 'none';
+        photoViewEl.style.display = 'flex';
+        senderEl.textContent = '';
+
+        if (type === 'video') {
+          photoEl.style.display = 'none';
+          photoEl.src = '';
+          videoEl.style.display = 'block';
+          videoEl.src = url;
+        } else {
+          videoEl.pause();
+          videoEl.src = '';
+          videoEl.style.display = 'none';
+          photoEl.style.display = 'block';
+          photoEl.src = url;
+        }
+      }
+
+      async function handleCommand(cmd) {
+        console.log('[COMMAND] Received:', cmd);
+
+        if (cmd.type === 'display' && cmd.text) {
+          try {
+            await KeyboardCommands.sendCommand('runningText', cmd.text);
+            console.log('[COMMAND] Running text sent to HID:', cmd.text);
+          } catch (err) {
+            console.error('[COMMAND] Failed to send running text:', err);
+          }
+        } else if (cmd.type === 'random') {
+          console.log('[COMMAND] Executing random - sending 100 packages');
+          try {
+            for (let i = 0; i < 100; i++) {
+              const randomDigits = [
+                Math.floor(Math.random() * 128),
+                Math.floor(Math.random() * 128),
+                Math.floor(Math.random() * 128),
+                Math.floor(Math.random() * 128)
+              ];
+              const randomSymbols = Math.floor(Math.random() * 4096);
+              await KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols });
+            }
+            console.log('[COMMAND] All 100 random packages sent');
+          } catch (err) {
+            console.error('[COMMAND] Failed to send random:', err);
+          }
+        }
+      }
+
+      function connect() {
+        const wsUrl = `wss://${wsHost}?api_key=${encodeURIComponent(apiKey)}`;
+        console.log('[WS] Connecting to:', wsHost);
+
+        const ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.log('[WS] Connected');
+          welcomeEl.textContent = 'connected, waiting for media...';
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('[WS] Received:', data);
+
+            if (data.message) {
+              displayMedia(data.message.url, data.message.type);
+            } else if (data.command) {
+              handleCommand(data.command);
+            }
+          } catch (err) {
+            console.error('[WS] Failed to parse message:', err);
+          }
+        };
+
+        ws.onclose = (event) => {
+          console.log('[WS] Disconnected:', event.code, event.reason);
+          welcomeEl.textContent = 'disconnected, reconnecting...';
+          welcomeEl.style.display = 'flex';
+          photoViewEl.style.display = 'none';
+          setTimeout(connect, 3000);
+        };
+
+        ws.onerror = (err) => {
+          console.error('[WS] Error:', err);
+        };
+      }
+
+      console.log('[INIT] Starting WebSocket connection');
+      connect();
+    })();
+  </script>
+</body>
+</html>
