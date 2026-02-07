@@ -354,7 +354,7 @@
         }
       });
 
-      function displayMedia(url, type) {
+      function displayMedia(url, type, sender) {
         if (type === 'empty' || !url) {
           console.log('[DISPLAY] Clearing display');
           photoViewEl.style.display = 'none';
@@ -365,10 +365,10 @@
           return;
         }
 
-        console.log('[DISPLAY] Showing media:', { type, url });
+        console.log('[DISPLAY] Showing media:', { type, url, sender });
         welcomeEl.style.display = 'none';
         photoViewEl.style.display = 'flex';
-        senderEl.textContent = '';
+        senderEl.textContent = sender || '';
 
         if (type === 'video') {
           photoEl.style.display = 'none';
@@ -432,7 +432,7 @@
             console.log('[WS] Received:', data);
 
             if (data.message) {
-              displayMedia(data.message.url, data.message.type);
+              displayMedia(data.message.url, data.message.type, data.message.sender);
             } else if (data.command) {
               handleCommand(data.command);
             }

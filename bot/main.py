@@ -14,12 +14,13 @@ from telegram.ext import Application, MessageHandler, CommandHandler, filters
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API_KEY = os.environ["TELEGRAM_API_KEY"]
 HARDWAVE_API_KEY = os.environ["HARDWAVE_API_KEY"]
-ALLOWED_CHAT_ID = 818630945
-ADMIN_IDS = {818630945, 1529429740}
+ALLOWED_CHAT_IDS = {int(x) for x in os.environ["ALLOWED_CHAT_IDS"].split(",")}
+ADMIN_IDS = {int(x) for x in os.environ["ADMIN_IDS"].split(",")}
 WEBSOCKET_PORT = 8765
 
 DISPLAY_TEXT_PATTERN = re.compile(r"^[a-zA-Z0-9\-_ ]{5,}$")
@@ -40,12 +41,19 @@ state = BotState()
 
 
 def is_allowed(msg: Message) -> bool:
-    return (
-        msg is not None
-        and msg.chat_id == ALLOWED_CHAT_ID
-        and msg.from_user.username
-        and state.enabled
-    )
+    if msg is None:
+        logger.debug("Rejected: message is None")
+        return False
+    if msg.chat_id not in ALLOWED_CHAT_IDS:
+        logger.debug("Rejected: chat_id %s not in allowed list", msg.chat_id)
+        return False
+    if not msg.from_user.username:
+        logger.debug("Rejected: user %s has no username", msg.from_user.id)
+        return False
+    if not state.enabled:
+        logger.debug("Rejected: bot is disabled")
+        return False
+    return True
 
 
 async def react(msg: Message, emoji: str = "👍") -> None:
@@ -70,26 +78,39 @@ async def send_ws(data: dict) -> None:
 
 async def handle_on(update: Update, _) -> None:
     msg = update.message
-    if msg.from_user.id not in ADMIN_IDS or msg.forward_date:
+    logger.debug("Received /on from user=%s (id=%s) chat=%s", msg.from_user.username, msg.from_user.id, msg.chat_id)
+    if msg.from_user.id not in ADMIN_IDS:
+        logger.debug("Rejected /on: user %s not in admin list", msg.from_user.id)
+        return
+    if msg.forward_date:
+        logger.debug("Rejected /on: message is forwarded")
         return
     state.enabled = True
     logger.info("Bot enabled by admin %s", msg.from_user.id)
+    await msg.reply_text("Bot enabled")
     await react(msg)
 
 
 async def handle_off(update: Update, _) -> None:
     msg = update.message
-    if msg.from_user.id not in ADMIN_IDS or msg.forward_date:
+    logger.debug("Received /off from user=%s (id=%s) chat=%s", msg.from_user.username, msg.from_user.id, msg.chat_id)
+    if msg.from_user.id not in ADMIN_IDS:
+        logger.debug("Rejected /off: user %s not in admin list", msg.from_user.id)
+        return
+    if msg.forward_date:
+        logger.debug("Rejected /off: message is forwarded")
         return
     state.enabled = False
     logger.info("Bot disabled by admin %s", msg.from_user.id)
     state.current_message = {"message": {"url": None, "type": "empty"}}
     await send_ws(state.current_message)
+    await msg.reply_text("Bot disabled")
     await react(msg)
 
 
 async def handle_display(update: Update, _) -> None:
     msg = update.message
+    logger.debug("Received /display from user=%s (id=%s) chat=%s", msg.from_user.username, msg.from_user.id, msg.chat_id)
     if not is_allowed(msg):
         return
 
@@ -106,6 +127,7 @@ async def handle_display(update: Update, _) -> None:
 
 async def handle_random(update: Update, _) -> None:
     msg = update.message
+    logger.debug("Received /random from user=%s (id=%s) chat=%s", msg.from_user.username, msg.from_user.id, msg.chat_id)
     if not is_allowed(msg):
         return
     logger.info("Random command from %s", msg.from_user.first_name)
@@ -115,7 +137,21 @@ async def handle_random(update: Update, _) -> None:
 
 async def handle_media(update: Update, context) -> None:
     msg = update.message
-    if not is_allowed(msg) or msg.has_media_spoiler:
+    logger.debug(
+        "Received media from chat=%s user=%s (id=%s): photo=%s video=%s animation=%s video_note=%s spoiler=%s",
+        msg.chat_id,
+        msg.from_user.username,
+        msg.from_user.id,
+        bool(msg.photo),
+        bool(msg.video),
+        bool(msg.animation),
+        bool(msg.video_note),
+        msg.has_media_spoiler,
+    )
+    if not is_allowed(msg):
+        return
+    if msg.has_media_spoiler:
+        logger.debug("Rejected: message has media spoiler")
         return
 
     file_id, media_type = None, None
@@ -138,7 +174,8 @@ async def handle_media(update: Update, context) -> None:
     else:
         file_url = f"https://api.telegram.org/file/bot{TELEGRAM_API_KEY}/{file.file_path}"
 
-    state.current_message = {"message": {"url": file_url, "type": media_type}}
+    sender = msg.from_user.first_name + (" @" + msg.from_user.username if msg.from_user.username else "")
+    state.current_message = {"message": {"url": file_url, "type": media_type, "sender": sender}}
     await send_ws(state.current_message)
     await react(msg)
 
