@@ -2,7 +2,8 @@
 
 name="kiosk"
 command="/usr/bin/chromium"
-command_args="--no-sandbox --kiosk --no-first-run --disable-infobars --noerrdialogs --use-fake-ui-for-media-stream --remote-debugging-port=9222 --enable-features=WebHID --disable-features=WebHIDBlocklist --auto-accept-this-tab-capture --enable-experimental-web-platform-features \"https://hardwave.tgr.rs/index.html?api_key=&chat_id=\""
+command_args="--no-sandbox --kiosk --no-first-run --disable-infobars --noerrdialogs --use-fake-ui-for-media-stream --remote-debugging-port=9222 --enable-features=WebHID --disable-features=WebHIDBlocklist --auto-accept-this-tab-capture --enable-experimental-web-platform-features \"https://hardwave.tgr.rs/index.html?api_key=redacted&chat_id=redacted\""
+#command_args="--no-sandbox --kiosk --no-first-run --disable-infobars --noerrdialogs --use-fake-ui-for-media-stream --remote-debugging-port=9222 --enable-features=WebHID --disable-features=WebHIDBlocklist --auto-accept-this-tab-capture --enable-experimental-web-platform-features \"https://hardwave-new.tgr.rs/?api_key=redacted\""
 command_background=true
 pidfile="/run/kiosk.pid"
 command_user="kiosk:kiosk"
