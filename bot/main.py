@@ -1,13 +1,13 @@
 import asyncio
 import hmac
-import json
 import logging
 import os
 import re
 from dataclasses import dataclass
-from urllib.parse import parse_qs, urlparse
+from pathlib import Path
 
-import websockets
+import aiohttp
+from aiohttp import web
 from telegram import Update, Message
 from telegram.ext import Application, MessageHandler, CommandHandler, filters
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_API_KEY = os.environ["TELEGRAM_API_KEY"]
 HARDWAVE_API_KEY = os.environ["HARDWAVE_API_KEY"]
-ALLOWED_CHAT_ID = -1002405000000
+ALLOWED_CHAT_ID = 818630945
 ADMIN_IDS = {818630945, 1529429740}
 WEBSOCKET_PORT = 8765
 
@@ -29,7 +29,7 @@ DISPLAY_TEXT_PATTERN = re.compile(r"^[a-zA-Z0-9\-_ ]{5,}$")
 class BotState:
     enabled: bool = True
     current_message: dict | None = None
-    ws_connection: websockets.WebSocketServerProtocol | None = None
+    ws_connection: web.WebSocketResponse | None = None
     ws_lock: asyncio.Lock = None
 
     def __post_init__(self):
@@ -57,13 +57,13 @@ async def react(msg: Message, emoji: str = "👍") -> None:
 
 async def send_ws(data: dict) -> None:
     async with state.ws_lock:
-        if state.ws_connection is None:
+        if state.ws_connection is None or state.ws_connection.closed:
             return
         try:
-            await state.ws_connection.send(json.dumps(data))
+            await state.ws_connection.send_json(data)
             key = "message" if "message" in data else "command"
             logger.info("Sent %s to WebSocket: %s", key, data[key]["type"])
-        except websockets.exceptions.ConnectionClosed:
+        except ConnectionResetError:
             logger.info("WebSocket connection closed, clearing")
             state.ws_connection = None
 
@@ -140,61 +140,75 @@ async def handle_media(update: Update, context) -> None:
     await react(msg)
 
 
-async def websocket_handler(websocket: websockets.WebSocketServerProtocol) -> None:
-    path = websocket.request.path if hasattr(websocket, "request") else websocket.path
-    params = parse_qs(urlparse(path).query)
-    provided_key = params.get("api_key", [""])[0]
+async def index_handler(_: web.Request) -> web.Response:
+    index_path = Path(__file__).parent / "index.html"
+    return web.FileResponse(index_path)
+
+
+async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
+    params = request.query
+    provided_key = params.get("api_key", "")
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
 
     if not hmac.compare_digest(provided_key, HARDWAVE_API_KEY):
         logger.warning("WebSocket connection rejected: invalid API key")
-        await websocket.close(1008, "Invalid API key")
-        return
+        await ws.close(code=aiohttp.WSCloseCode.POLICY_VIOLATION, message=b"Invalid API key")
+        return ws
 
     async with state.ws_lock:
         if state.ws_connection is not None:
             logger.info("Dropping old WebSocket connection")
             try:
-                await state.ws_connection.close(1000, "Replaced by new connection")
+                await state.ws_connection.close()
             except Exception:
                 pass
-        state.ws_connection = websocket
+        state.ws_connection = ws
 
     logger.info("New WebSocket connection established")
     initial = state.current_message or {"message": {"url": None, "type": "empty"}}
-    await websocket.send(json.dumps(initial))
+    await ws.send_json(initial)
 
     try:
-        async for _ in websocket:
+        async for _ in ws:
             pass
-    except websockets.exceptions.ConnectionClosed:
-        pass
     finally:
         async with state.ws_lock:
-            if state.ws_connection is websocket:
+            if state.ws_connection is ws:
                 state.ws_connection = None
                 logger.info("WebSocket connection closed")
 
+    return ws
+
 
 async def main() -> None:
-    application = Application.builder().token(TELEGRAM_API_KEY).build()
+    tg_app = Application.builder().token(TELEGRAM_API_KEY).build()
 
-    application.add_handler(CommandHandler("on", handle_on))
-    application.add_handler(CommandHandler("off", handle_off))
-    application.add_handler(CommandHandler("display", handle_display))
-    application.add_handler(CommandHandler("random", handle_random))
-    application.add_handler(
+    tg_app.add_handler(CommandHandler("on", handle_on))
+    tg_app.add_handler(CommandHandler("off", handle_off))
+    tg_app.add_handler(CommandHandler("display", handle_display))
+    tg_app.add_handler(CommandHandler("random", handle_random))
+    tg_app.add_handler(
         MessageHandler(
             filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.VIDEO_NOTE,
             handle_media,
         )
     )
 
-    ws_server = await websockets.serve(websocket_handler, "0.0.0.0", WEBSOCKET_PORT)
-    logger.info("WebSocket server started on port %s", WEBSOCKET_PORT)
+    web_app = web.Application()
+    web_app.router.add_get("/", index_handler)
+    web_app.router.add_get("/ws", websocket_handler)
 
-    async with application:
-        await application.start()
-        await application.updater.start_polling(drop_pending_updates=True)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", WEBSOCKET_PORT)
+    await site.start()
+    logger.info("HTTP/WebSocket server started on port %s", WEBSOCKET_PORT)
+
+    async with tg_app:
+        await tg_app.start()
+        await tg_app.updater.start_polling(drop_pending_updates=True)
         logger.info("Telegram bot started polling")
 
         try:
@@ -202,10 +216,9 @@ async def main() -> None:
         except asyncio.CancelledError:
             pass
         finally:
-            await application.updater.stop()
-            await application.stop()
-            ws_server.close()
-            await ws_server.wait_closed()
+            await tg_app.updater.stop()
+            await tg_app.stop()
+            await runner.cleanup()
 
 
 if __name__ == "__main__":

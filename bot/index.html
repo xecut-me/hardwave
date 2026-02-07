@@ -323,7 +323,6 @@
       console.log('[INIT] Starting WebSocket viewer');
 
       const params = new URLSearchParams(window.location.search);
-      const wsHost = params.get('ws_host');
       const apiKey = params.get('api_key');
       const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
 
@@ -335,16 +334,9 @@
       const imageContainerEl = document.querySelector('.image-container');
 
       console.log('[CONFIG] URL parameters:', {
-        hasWsHost: !!wsHost,
         hasApiKey: !!apiKey,
         keepAspectRatio
       });
-
-      if (!wsHost) {
-        console.error('[CONFIG] No ws_host found in URL - aborting');
-        welcomeEl.textContent = 'ws_host not found in URL';
-        return;
-      }
 
       if (!apiKey) {
         console.error('[CONFIG] No api_key found in URL - aborting');
@@ -423,8 +415,9 @@
       }
 
       function connect() {
-        const wsUrl = `wss://${wsHost}?api_key=${encodeURIComponent(apiKey)}`;
-        console.log('[WS] Connecting to:', wsHost);
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${location.host}/ws?api_key=${encodeURIComponent(apiKey)}`;
+        console.log('[WS] Connecting to:', location.host);
 
         const ws = new WebSocket(wsUrl);
 
