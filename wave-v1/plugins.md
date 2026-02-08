@@ -4,7 +4,7 @@ Write a HTML page that will be loaded into iframe on a device with a screen, no 
 
 Parent frame has a connection to a telegram chat and to special 7-segment clock, it will manage all stuff, you just need to communicate with it via postMessage. Your code will run in a sandboxed iframe with `sandbox="allow-scripts"`.
 
-Please keep code small enough but not smaller that it should be. Prioritize fast answer if it not hurts usability and code correctness. Add small instructions on what keys meaning is.
+Please keep code small enough but not smaller that it should be. Prioritize fast answer if it not hurts usability and code correctness. Add small instructions on what keys meaning is. Therefore not add comments they dont needed.
 
 # Receiving Messages (Parent → Plugin)
 
