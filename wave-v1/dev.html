@@ -105,12 +105,12 @@
 </head>
 <body>
   <div class="key-display-overlay"><div class="key-display-text" id="keyDisplay"></div></div>
-  <div class="welcome" id="welcome">send media in @xexecut_chat</div>
+  <div class="welcome" id="welcome"></div>
 
   <div class="photo-view" id="photoView">
     <div class="header">
       <div class="sender" id="sender"></div>
-      <div class="bot-name">send media in @xexecut_chat</div>
+      <div class="bot-name" id="botName"></div>
     </div>
     <div class="image-container">
       <img id="photo" src="" alt="Photo">
@@ -119,6 +119,9 @@
   </div>
 
   <script>
+    const CHAT_NAME = '@xexecut_chat';
+    const TIMEZONE = 'Europe/Belgrade';
+
     const KeyboardCommands = (function() {
       const VID = 0x239A;
       const PID = 0x80B4;
@@ -194,7 +197,7 @@
       function getCurrentTime() {
         const now = new Date();
         const parts = new Intl.DateTimeFormat("en-GB", {
-          timeZone: "Europe/Belgrade",
+          timeZone: TIMEZONE,
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
@@ -332,14 +335,20 @@
       const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
       const requireUsername = params.get('require_username') === '1' || params.get('require_username') === 'true';
       const allowedChatId = params.get('chat_id') || null;
+      const adminIdsParam = params.get('admin_ids');
 
       const welcomeEl = document.getElementById('welcome');
+      const botNameEl = document.getElementById('botName');
+      const welcomeText = 'send media in ' + CHAT_NAME;
+      welcomeEl.textContent = welcomeText;
+      botNameEl.textContent = welcomeText;
 
       console.log('[CONFIG] URL parameters:', {
         hasApiKey: !!queryKey,
         keepAspectRatio,
         requireUsername,
-        allowedChatId
+        allowedChatId,
+        adminIdsParam
       });
 
       if (!queryKey) {
@@ -354,6 +363,13 @@
         return;
       }
 
+      if (!adminIdsParam) {
+        console.error('[CONFIG] No admin_ids found in URL - aborting');
+        welcomeEl.textContent = 'admin_ids not found in URL';
+        return;
+      }
+
+      const adminIds = adminIdsParam.split(',').map(id => parseInt(id.trim(), 10));
       const apiKey = queryKey;
       console.log('[CONFIG] API key loaded from URL');
       const photoViewEl = document.getElementById('photoView');
@@ -374,7 +390,6 @@
 
       let offset = 0;
       let killswitchActivated = false;
-      const KILLSWITCH_SENDER_IDS = [818630945, 1529429740];
 
       function activateKillswitch() {
         killswitchActivated = true;
@@ -395,7 +410,7 @@
           return;
         }
 
-        const isFromKillswitchSender = message.from && KILLSWITCH_SENDER_IDS.includes(message.from.id);
+        const isFromKillswitchSender = message.from && adminIds.includes(message.from.id);
         const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
         const isKillswitchCommand = (message.text || '') === '/killswitch';
         if (isFromKillswitchSender && !isForwarded && isKillswitchCommand) {
