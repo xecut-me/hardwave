@@ -119,22 +119,44 @@
   </div>
 
   <script>
-    const CHAT_NAME = '@xexecut_chat';
-    const TIMEZONE = 'Europe/Belgrade';
+    // ============================================================
+    // CONFIG - All configurable constants in one place
+    // ============================================================
+    const CONFIG = {
+      // App
+      CHAT_NAME: '@xexecut_chat',
+      TIMEZONE: 'Europe/Belgrade',
 
+      // WebHID Device
+      HID_VENDOR_ID: 0x239A,
+      HID_PRODUCT_ID: 0x80B4,
+      HID_USAGE_PAGE: 0xFF00,
+      HID_USAGE: 0x01,
+      HID_REPORT_ID: 0x04,
+      HID_REPORT_LENGTH: 48,
+      HID_TEXT_MAX_LENGTH: 46,
+
+      // HID Commands
+      CMD_RUNNING_TEXT: 0x10,
+      CMD_TIME_SYNC: 0x12,
+      CMD_RAW: 0x14,
+
+      // Timing
+      TIME_SYNC_INTERVAL_MS: 60 * 60 * 1000,  // 1 hour
+      POLL_TIMEOUT_SECONDS: 30,
+      KEY_DISPLAY_DURATION_MS: 1000,
+      KEY_FADE_DURATION_MS: 800,
+
+      // Random command
+      RANDOM_PACKAGE_COUNT: 100,
+      RANDOM_DIGIT_MAX: 128,
+      RANDOM_SYMBOLS_MAX: 4096,
+    };
+
+    // ============================================================
+    // KeyboardCommands - WebHID hardware interface
+    // ============================================================
     const KeyboardCommands = (function() {
-      const VID = 0x239A;
-      const PID = 0x80B4;
-      const USAGE_PAGE = 0xFF00;
-      const USAGE = 0x01;
-      const REPORT_ID = 0x04;
-      const REPORT_LEN = 48;
-      const TEXT_LEN = 46;
-
-      const CMD_RUNNING_TEXT = 0x10;
-      const CMD_TIME_SYNC = 0x12;
-      const CMD_RAW = 0x14;
-
       let dev = null;
 
       const MACCYRILLIC_LOOKUP = {
@@ -153,51 +175,63 @@
         0x2116: 0xDC, 0x0401: 0xDD, 0x0451: 0xDE, 0x044F: 0xDF, 0x20AC: 0xFF,
       };
 
-      const enc = function(text) {
+      function encode(text) {
         text = text + "";
         const payload = new Uint8Array(text.length);
 
         for (let i = 0; i < text.length; i++) {
           let code = text.charCodeAt(i);
-          if (code >= 0x20 && code <= 0x7f) { // ASCII passthrough
+          if (code >= 0x20 && code <= 0x7f) {
             payload[i] = code;
-          } else if (code >= 0x0410 && code <= 0x042f) { // UPPERCASE Cyrillic
+          } else if (code >= 0x0410 && code <= 0x042f) {
             payload[i] = code - 0x0390;
-          } else if (code >= 0x0430 && code <= 0x044e) { // lowercase Cyrillic
+          } else if (code >= 0x0430 && code <= 0x044e) {
             payload[i] = code - 0x0350;
           } else {
             let macCode = MACCYRILLIC_LOOKUP[code];
             if (macCode === undefined) {
               throw new Error('Symbol not available in Mac encoding: 0x' + code.toString(16));
-            } else {
-              payload[i] = macCode;
             }
+            payload[i] = macCode;
           }
         }
 
         return payload;
-      };
+      }
+
+      function handleDisconnect(event) {
+        if (dev && event.device === dev) {
+          console.log('[KeyboardCommands] Device disconnected');
+          dev = null;
+        }
+      }
 
       async function ensureDevice() {
         if (!("hid" in navigator)) throw new Error("WebHID not available");
         if (dev && dev.opened) return dev;
+
+        const { HID_VENDOR_ID, HID_PRODUCT_ID, HID_USAGE_PAGE, HID_USAGE } = CONFIG;
+
         const granted = await navigator.hid.getDevices();
-        dev = granted.find(d => d.vendorId === VID && d.productId === PID) || null;
+        dev = granted.find(d => d.vendorId === HID_VENDOR_ID && d.productId === HID_PRODUCT_ID) || null;
+
         if (!dev) {
           const picked = await navigator.hid.requestDevice({
-            filters: [{ vendorId: VID, productId: PID, usagePage: USAGE_PAGE, usage: USAGE }]
+            filters: [{ vendorId: HID_VENDOR_ID, productId: HID_PRODUCT_ID, usagePage: HID_USAGE_PAGE, usage: HID_USAGE }]
           });
-          dev = picked && picked[0] ? picked[0] : null;
+          dev = picked?.[0] || null;
         }
+
         if (!dev) throw new Error("No device selected");
         if (!dev.opened) await dev.open();
+
         return dev;
       }
 
       function getCurrentTime() {
         const now = new Date();
         const parts = new Intl.DateTimeFormat("en-GB", {
-          timeZone: TIMEZONE,
+          timeZone: CONFIG.TIMEZONE,
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
@@ -219,26 +253,24 @@
       }
 
       async function sendCommand(type, data) {
-        const d = await ensureDevice();
-        const payload = new Uint8Array(REPORT_LEN);
+        const device = await ensureDevice();
+        const payload = new Uint8Array(CONFIG.HID_REPORT_LENGTH);
 
         if (type === 'timeSync') {
-          payload[0] = CMD_TIME_SYNC;
+          payload[0] = CONFIG.CMD_TIME_SYNC;
           const ts = data !== undefined ? data : getCurrentTime();
           const dv = new DataView(payload.buffer);
           dv.setUint32(1, ts >>> 0, true);
-          const d = new Date(ts * 1000);
-          console.log('[KeyboardCommands] Sending time sync:', ts, '(' + d.toISOString() + ')');
+          console.log('[KeyboardCommands] Sending time sync:', ts, '(' + new Date(ts * 1000).toISOString() + ')');
         } else if (type === 'runningText') {
-          payload[0] = CMD_RUNNING_TEXT;
-          let bytes = enc(data || '');
-          if (bytes.length > TEXT_LEN) bytes = bytes.slice(0, TEXT_LEN);
+          payload[0] = CONFIG.CMD_RUNNING_TEXT;
+          let bytes = encode(data || '');
+          if (bytes.length > CONFIG.HID_TEXT_MAX_LENGTH) bytes = bytes.slice(0, CONFIG.HID_TEXT_MAX_LENGTH);
           payload.set(bytes, 1);
           payload[1 + bytes.length] = 0x00;
           console.log('[KeyboardCommands] Sending running text:', data);
         } else if (type === 'raw') {
-          payload[0] = CMD_RAW;
-          // data should be { digits: [4 bytes], symbols: number (12-bit) }
+          payload[0] = CONFIG.CMD_RAW;
           const digits = data.digits || [0, 0, 0, 0];
           const symbols = data.symbols || 0;
           payload[1] = digits[0] & 0x7F;
@@ -252,18 +284,33 @@
           throw new Error('Unknown command type: ' + type);
         }
 
-        await d.sendReport(REPORT_ID, payload);
+        await device.sendReport(CONFIG.HID_REPORT_ID, payload);
       }
 
-      sendCommand('timeSync')
-        .then(() => console.log('[KeyboardCommands] Initial time sync completed'))
-        .catch(e => console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message));
+      // Register disconnect handler
+      if ("hid" in navigator) {
+        navigator.hid.addEventListener('disconnect', handleDisconnect);
+      }
 
-      setInterval(() => {
-        sendCommand('timeSync')
-          .then(() => console.log('[KeyboardCommands] Hourly time sync completed'))
-          .catch(e => console.log('[KeyboardCommands] Hourly time sync failed:', e.message));
-      }, 60 * 60 * 1000);
+      // Initial time sync
+      (async () => {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Initial time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message);
+        }
+      })();
+
+      // Periodic time sync
+      setInterval(async () => {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Periodic time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Periodic time sync failed:', e.message);
+        }
+      }, CONFIG.TIME_SYNC_INTERVAL_MS);
 
       return {
         getCurrentTime,
@@ -272,10 +319,10 @@
       };
     })();
     
+    // ============================================================
+    // Keyboard - Key display overlay handler
+    // ============================================================
     const Keyboard = (function KeyboardHandler() {
-      const DISPLAY_DURATION = 1000;
-      const FADE_DURATION = 800;
-
       const keyDisplayEl = document.getElementById('keyDisplay');
       let fadeTimeout = null;
       let removeTimeout = null;
@@ -312,8 +359,8 @@
 
           removeTimeout = setTimeout(() => {
             keyDisplayEl.classList.remove('fading');
-          }, FADE_DURATION);
-        }, DISPLAY_DURATION);
+          }, CONFIG.KEY_FADE_DURATION_MS);
+        }, CONFIG.KEY_DISPLAY_DURATION_MS);
       }
 
       document.addEventListener('keydown', (e) => {
@@ -326,81 +373,86 @@
       };
     })();
 
-    (function TelegramViewer() {
-      console.log('[INIT] Starting Telegram Updates viewer');
+    // ============================================================
+    // TelegramAPI - Telegram Bot API interface
+    // ============================================================
+    const TelegramAPI = (function() {
+      let apiKey = null;
 
-      const params = new URLSearchParams(window.location.search);
-      const queryKey = params.get('api_key');
-      const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
-      const requireUsername = params.get('require_username') === '1' || params.get('require_username') === 'true';
-      const allowedChatId = params.get('chat_id') || null;
-      const adminIdsParam = params.get('admin_ids');
+      function init(key) {
+        apiKey = key;
+      }
 
+      async function sendReaction(chatId, messageId, emoji) {
+        try {
+          await fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              message_id: messageId,
+              reaction: [{ type: 'emoji', emoji }]
+            })
+          });
+        } catch (err) {
+          console.error('[TelegramAPI] Failed to send reaction:', err);
+        }
+      }
+
+      async function getFileUrl(fileId) {
+        const res = await fetch(`https://api.telegram.org/bot${apiKey}/getFile?file_id=${fileId}`);
+        const data = await res.json();
+        if (!data.ok) {
+          throw new Error('Telegram API error: ' + JSON.stringify(data));
+        }
+        console.log('[TelegramAPI] File fetched:', data.result.file_path);
+        return `https://api.telegram.org/file/bot${apiKey}/${data.result.file_path}`;
+      }
+
+      async function getUpdates(offset) {
+        const url = `https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=${CONFIG.POLL_TIMEOUT_SECONDS}`;
+        const res = await fetch(url);
+        return await res.json();
+      }
+
+      async function acknowledgeUpdate(offset) {
+        await fetch(`https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=0`);
+      }
+
+      return { init, sendReaction, getFileUrl, getUpdates, acknowledgeUpdate };
+    })();
+
+    // ============================================================
+    // MediaRenderer - UI display handling
+    // ============================================================
+    const MediaRenderer = (function() {
       const welcomeEl = document.getElementById('welcome');
       const botNameEl = document.getElementById('botName');
-      const welcomeText = 'send media in ' + CHAT_NAME;
-      welcomeEl.textContent = welcomeText;
-      botNameEl.textContent = welcomeText;
-
-      console.log('[CONFIG] URL parameters:', {
-        hasApiKey: !!queryKey,
-        keepAspectRatio,
-        requireUsername,
-        allowedChatId,
-        adminIdsParam
-      });
-
-      if (!queryKey) {
-        console.error('[CONFIG] No API key found in URL - aborting');
-        welcomeEl.textContent = 'api_key not found in URL';
-        return;
-      }
-
-      if (!allowedChatId) {
-        console.error('[CONFIG] No chat_id found in URL - aborting');
-        welcomeEl.textContent = 'chat_id not found in URL';
-        return;
-      }
-
-      if (!adminIdsParam) {
-        console.error('[CONFIG] No admin_ids found in URL - aborting');
-        welcomeEl.textContent = 'admin_ids not found in URL';
-        return;
-      }
-
-      const adminIds = adminIdsParam.split(',').map(id => parseInt(id.trim(), 10));
-      const apiKey = queryKey;
-      console.log('[CONFIG] API key loaded from URL');
-
-      function sendReaction(chatId, messageId, emoji) {
-        return fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            message_id: messageId,
-            reaction: [{ type: 'emoji', emoji }]
-          })
-        }).catch(err => console.error('[TELEGRAM] Failed to send reaction:', err));
-      }
-
-      function getMediaInfo(message) {
-        if (message.photo?.length > 0) {
-          return { fileId: message.photo[message.photo.length - 1].file_id, isVideo: false, type: 'photo' };
-        }
-        if (message.animation) return { fileId: message.animation.file_id, isVideo: true, type: 'animation' };
-        if (message.video) return { fileId: message.video.file_id, isVideo: true, type: 'video' };
-        if (message.video_note) return { fileId: message.video_note.file_id, isVideo: true, type: 'video_note' };
-        return null;
-      }
-
       const photoViewEl = document.getElementById('photoView');
       const senderEl = document.getElementById('sender');
       const photoEl = document.getElementById('photo');
       const videoEl = document.getElementById('video');
       const imageContainerEl = document.querySelector('.image-container');
 
-      function displayMedia(url, isVideo, sender) {
+      function init(keepAspectRatio) {
+        const welcomeText = 'send media in ' + CONFIG.CHAT_NAME;
+        welcomeEl.textContent = welcomeText;
+        botNameEl.textContent = welcomeText;
+
+        if (keepAspectRatio) {
+          imageContainerEl.classList.add('keep-aspect');
+        }
+
+        Keyboard.onKey('Enter', () => {
+          imageContainerEl.classList.toggle('keep-aspect');
+        });
+      }
+
+      function showError(message) {
+        welcomeEl.textContent = message;
+      }
+
+      function showMedia(url, isVideo, sender) {
         welcomeEl.style.display = 'none';
         photoViewEl.style.display = 'flex';
         senderEl.textContent = sender;
@@ -419,154 +471,196 @@
         }
       }
 
-      if (keepAspectRatio) {
-        imageContainerEl.classList.add('keep-aspect');
-      }
-
-      Keyboard.onKey('Enter', () => {
-        imageContainerEl.classList.toggle('keep-aspect');
-      });
-
-      let offset = 0;
-      let killswitchActivated = false;
-
-      function activateKillswitch() {
-        killswitchActivated = true;
-        console.log('[KILLSWITCH] Bot manually stopped');
-
+      function showKillswitch() {
         photoViewEl.style.display = 'none';
         welcomeEl.style.display = 'flex';
         welcomeEl.textContent = 'bot was manually stopped, restart via ssh';
       }
 
-      function displayUpdate(update) {
-        console.log('[DISPLAY] Processing update:', { update_id: update.update_id });
-        console.log('[DISPLAY] Full JSON:', JSON.stringify(update, null, 2));
+      function extractMediaInfo(message) {
+        if (message.photo?.length > 0) {
+          return { fileId: message.photo[message.photo.length - 1].file_id, isVideo: false, type: 'photo' };
+        }
+        if (message.animation) return { fileId: message.animation.file_id, isVideo: true, type: 'animation' };
+        if (message.video) return { fileId: message.video.file_id, isVideo: true, type: 'video' };
+        if (message.video_note) return { fileId: message.video_note.file_id, isVideo: true, type: 'video_note' };
+        return null;
+      }
+
+      return { init, showError, showMedia, showKillswitch, extractMediaInfo };
+    })();
+
+    // ============================================================
+    // CommandProcessor - Handle bot commands
+    // ============================================================
+    const CommandProcessor = (function() {
+      async function handleDisplay(text, chatId, messageId) {
+        const displayText = text.substring(9);
+        console.log('[CommandProcessor] /display command:', displayText);
+
+        try {
+          await KeyboardCommands.sendCommand('runningText', displayText);
+          console.log('[CommandProcessor] Running text sent to HID');
+          await TelegramAPI.sendReaction(chatId, messageId, '👍');
+        } catch (err) {
+          console.error('[CommandProcessor] Failed to send running text:', err);
+          await TelegramAPI.sendReaction(chatId, messageId, '👎');
+        }
+      }
+
+      async function handleRandom(chatId, messageId) {
+        console.log('[CommandProcessor] /random command - sending packages');
+        try {
+          for (let i = 0; i < CONFIG.RANDOM_PACKAGE_COUNT; i++) {
+            const randomDigits = [
+              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX),
+              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX),
+              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX),
+              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX)
+            ];
+            const randomSymbols = Math.floor(Math.random() * CONFIG.RANDOM_SYMBOLS_MAX);
+            await KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols });
+            console.log(`[CommandProcessor] Sent random package ${i + 1}/${CONFIG.RANDOM_PACKAGE_COUNT}`);
+          }
+          console.log('[CommandProcessor] All random packages sent');
+          await TelegramAPI.sendReaction(chatId, messageId, '👍');
+        } catch (err) {
+          console.error('[CommandProcessor] Failed to send random raw:', err);
+        }
+      }
+
+      async function handleMedia(media, sender, chatId, messageId) {
+        try {
+          const fileUrl = await TelegramAPI.getFileUrl(media.fileId);
+          MediaRenderer.showMedia(fileUrl, media.isVideo, sender);
+          await TelegramAPI.sendReaction(chatId, messageId, '👍');
+        } catch (err) {
+          console.error('[CommandProcessor] Failed to fetch/display media:', err);
+        }
+      }
+
+      function isKillswitchCommand(message, adminIds) {
+        const isFromAdmin = message.from && adminIds.includes(message.from.id);
+        const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
+        const isCommand = (message.text || '') === '/killswitch';
+        return isFromAdmin && !isForwarded && isCommand;
+      }
+
+      return { handleDisplay, handleRandom, handleMedia, isKillswitchCommand };
+    })();
+
+    // ============================================================
+    // Main Application - Orchestrates all modules
+    // ============================================================
+    (async function Main() {
+      console.log('[INIT] Starting Telegram Updates viewer');
+
+      // Parse URL parameters
+      const params = new URLSearchParams(window.location.search);
+      const queryKey = params.get('api_key');
+      const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
+      const requireUsername = params.get('require_username') === '1' || params.get('require_username') === 'true';
+      const allowedChatId = params.get('chat_id') || null;
+      const adminIdsParam = params.get('admin_ids');
+
+      console.log('[CONFIG] URL parameters:', { hasApiKey: !!queryKey, keepAspectRatio, requireUsername, allowedChatId, adminIdsParam });
+
+      // Initialize renderer first for error display
+      MediaRenderer.init(keepAspectRatio);
+
+      // Validate required params
+      if (!queryKey) {
+        console.error('[CONFIG] No API key found in URL - aborting');
+        MediaRenderer.showError('api_key not found in URL');
+        return;
+      }
+      if (!allowedChatId) {
+        console.error('[CONFIG] No chat_id found in URL - aborting');
+        MediaRenderer.showError('chat_id not found in URL');
+        return;
+      }
+      if (!adminIdsParam) {
+        console.error('[CONFIG] No admin_ids found in URL - aborting');
+        MediaRenderer.showError('admin_ids not found in URL');
+        return;
+      }
+
+      const adminIds = adminIdsParam.split(',').map(id => parseInt(id.trim(), 10));
+      TelegramAPI.init(queryKey);
+      console.log('[CONFIG] API key loaded from URL');
+
+      let offset = 0;
+      let killswitchActivated = false;
+
+      async function processUpdate(update) {
+        console.log('[POLL] Processing update:', { update_id: update.update_id });
+        console.log('[POLL] Full JSON:', JSON.stringify(update, null, 2));
 
         const message = update.message;
         if (!message) {
-          console.log('[DISPLAY] Skipping update - no message field present');
+          console.log('[POLL] Skipping update - no message field present');
           return;
         }
 
-        const isFromKillswitchSender = message.from && adminIds.includes(message.from.id);
-        const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
-        const isKillswitchCommand = (message.text || '') === '/killswitch';
-        if (isFromKillswitchSender && !isForwarded && isKillswitchCommand) {
-          console.log('[KILLSWITCH] Killswitch triggered by sender:', message.from.id);
-          activateKillswitch();
+        // Check killswitch first
+        if (CommandProcessor.isKillswitchCommand(message, adminIds)) {
+          console.log('[KILLSWITCH] Triggered by sender:', message.from.id);
+          killswitchActivated = true;
+          MediaRenderer.showKillswitch();
           return;
         }
 
-        console.log('[DISPLAY] Message received:', {
+        console.log('[POLL] Message received:', {
           message_id: message.message_id,
           chat_id: message.chat.id,
           from: message.from.first_name,
-          has_photo: !!(message.photo && message.photo.length > 0),
+          has_photo: !!(message.photo?.length > 0),
           has_video: !!message.video,
           has_video_note: !!message.video_note
         });
 
+        // Filter checks
         if (allowedChatId && String(message.chat.id) !== allowedChatId) {
-          console.log('[DISPLAY] Skipping message - chat_id filter mismatch:', {
-            expected: allowedChatId,
-            actual: message.chat.id
-          });
+          console.log('[POLL] Skipping - chat_id mismatch:', { expected: allowedChatId, actual: message.chat.id });
           return;
         }
-
         if (requireUsername && !message.from.username) {
-          console.log('[DISPLAY] Skipping message - user has no username:', {
-            from: message.from.first_name,
-            user_id: message.from.id
-          });
+          console.log('[POLL] Skipping - user has no username:', { from: message.from.first_name, user_id: message.from.id });
           return;
         }
-
         if (message.has_media_spoiler) {
-          console.log('[DISPLAY] Skipping message - has media spoiler:', {
-            from: message.from.first_name,
-            message_id: message.message_id
-          });
+          console.log('[POLL] Skipping - has media spoiler:', { from: message.from.first_name, message_id: message.message_id });
           return;
         }
 
         const sender = message.from.first_name + (message.from.username ? ' @' + message.from.username : '');
-        const media = getMediaInfo(message);
-        if (media) {
-          console.log('[DISPLAY] Detected media:', media);
-        }
-
         const text = message.text || message.caption || '';
+        const media = MediaRenderer.extractMediaInfo(message);
+
+        // Process commands (can run in parallel with media)
         if (text.startsWith('/display ')) {
-          const displayText = text.substring(9);
-          console.log('[DISPLAY] Received /display command:', displayText);
-
-          KeyboardCommands.sendCommand('runningText', displayText)
-            .then(() => {
-              console.log('[DISPLAY] Running text sent to HID');
-              sendReaction(message.chat.id, message.message_id, '👍');
-            })
-            .catch(err => {
-              console.error('[DISPLAY] Failed to send running text:', err);
-              sendReaction(message.chat.id, message.message_id, '👎');
-            });
+          CommandProcessor.handleDisplay(text, message.chat.id, message.message_id);
+        } else if (text === '/random') {
+          CommandProcessor.handleRandom(message.chat.id, message.message_id);
         }
 
-        if (text === '/random') {
-          console.log('[DISPLAY] Received /random command - sending 100 packages');
-          (async () => {
-            try {
-              for (let i = 0; i < 100; i++) {
-                const randomDigits = [
-                  Math.floor(Math.random() * 128),
-                  Math.floor(Math.random() * 128),
-                  Math.floor(Math.random() * 128),
-                  Math.floor(Math.random() * 128)
-                ];
-                const randomSymbols = Math.floor(Math.random() * 4096);
-                await KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols });
-                console.log(`[DISPLAY] Sent random package ${i + 1}/100`);
-              }
-              console.log('[DISPLAY] All 100 random packages sent to HID');
-              sendReaction(message.chat.id, message.message_id, '👍');
-            } catch (err) {
-              console.error('[DISPLAY] Failed to send random raw:', err);
-            }
-          })();
-        }
-
+        // Process media
         if (media) {
-          fetch(`https://api.telegram.org/bot${apiKey}/getFile?file_id=${media.fileId}`)
-            .then(res => res.json())
-            .then(data => {
-              if (!data.ok) {
-                console.error('[DISPLAY] Telegram API error:', data);
-                return;
-              }
-
-              const fileUrl = `https://api.telegram.org/file/bot${apiKey}/${data.result.file_path}`;
-              console.log('[DISPLAY] File fetched:', data.result.file_path);
-              displayMedia(fileUrl, media.isVideo, sender);
-              sendReaction(message.chat.id, message.message_id, '👍');
-            })
-            .catch(err => console.error('[DISPLAY] Failed to fetch file:', err));
+          console.log('[POLL] Detected media:', media);
+          await CommandProcessor.handleMedia(media, sender, message.chat.id, message.message_id);
         }
       }
 
       async function pollUpdates() {
         while (!killswitchActivated) {
-          console.log('[POLL] Starting long-poll request with offset:', offset);
+          console.log('[POLL] Starting long-poll with offset:', offset);
           try {
-            const url = `https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=30`;
-            const res = await fetch(url);
-            const data = await res.json();
+            const data = await TelegramAPI.getUpdates(offset);
 
             if (data.ok && data.result.length > 0) {
               console.log('[POLL] Received', data.result.length, 'update(s)');
               for (const update of data.result) {
-                console.log('[POLL] Processing update_id:', update.update_id);
-                displayUpdate(update);
+                await processUpdate(update);
                 offset = update.update_id + 1;
                 console.log('[POLL] Updated offset to:', offset);
                 if (killswitchActivated) break;
@@ -580,11 +674,11 @@
             console.error('[POLL] Polling error:', e);
           }
         }
-        console.log('[POLL] Killswitch activated - stopping polling');
 
+        console.log('[POLL] Killswitch activated - stopping polling');
         try {
-          console.log('[POLL] Final poll to acknowledge killswitch update with offset:', offset);
-          await fetch(`https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=0`);
+          console.log('[POLL] Final poll to acknowledge killswitch with offset:', offset);
+          await TelegramAPI.acknowledgeUpdate(offset);
           console.log('[POLL] Killswitch update acknowledged');
         } catch (e) {
           console.error('[POLL] Failed to acknowledge killswitch update:', e);
@@ -592,7 +686,7 @@
       }
 
       console.log('[INIT] Starting polling loop');
-      pollUpdates();
+      await pollUpdates();
     })();
   </script>
 </body>
