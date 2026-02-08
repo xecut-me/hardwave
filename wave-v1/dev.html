@@ -372,11 +372,53 @@
       const adminIds = adminIdsParam.split(',').map(id => parseInt(id.trim(), 10));
       const apiKey = queryKey;
       console.log('[CONFIG] API key loaded from URL');
+
+      function sendReaction(chatId, messageId, emoji) {
+        return fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            message_id: messageId,
+            reaction: [{ type: 'emoji', emoji }]
+          })
+        }).catch(err => console.error('[TELEGRAM] Failed to send reaction:', err));
+      }
+
+      function getMediaInfo(message) {
+        if (message.photo?.length > 0) {
+          return { fileId: message.photo[message.photo.length - 1].file_id, isVideo: false, type: 'photo' };
+        }
+        if (message.animation) return { fileId: message.animation.file_id, isVideo: true, type: 'animation' };
+        if (message.video) return { fileId: message.video.file_id, isVideo: true, type: 'video' };
+        if (message.video_note) return { fileId: message.video_note.file_id, isVideo: true, type: 'video_note' };
+        return null;
+      }
+
       const photoViewEl = document.getElementById('photoView');
       const senderEl = document.getElementById('sender');
       const photoEl = document.getElementById('photo');
       const videoEl = document.getElementById('video');
       const imageContainerEl = document.querySelector('.image-container');
+
+      function displayMedia(url, isVideo, sender) {
+        welcomeEl.style.display = 'none';
+        photoViewEl.style.display = 'flex';
+        senderEl.textContent = sender;
+
+        if (isVideo) {
+          photoEl.style.display = 'none';
+          photoEl.src = '';
+          videoEl.style.display = 'block';
+          videoEl.src = url;
+        } else {
+          videoEl.pause();
+          videoEl.src = '';
+          videoEl.style.display = 'none';
+          photoEl.style.display = 'block';
+          photoEl.src = url;
+        }
+      }
 
       if (keepAspectRatio) {
         imageContainerEl.classList.add('keep-aspect');
@@ -453,32 +495,9 @@
         }
 
         const sender = message.from.first_name + (message.from.username ? ' @' + message.from.username : '');
-        let fileId = null;
-        let isVideo = false;
-
-        if (message.photo && message.photo.length > 0) {
-          fileId = message.photo[message.photo.length - 1].file_id;
-          isVideo = false;
-          console.log('[DISPLAY] Detected PHOTO, using largest size:', {
-            photo_sizes_count: message.photo.length,
-            selected_file_id: fileId
-          });
-        } else if (message.animation) {
-          fileId = message.animation.file_id;
-          isVideo = true;
-          console.log('[DISPLAY] Detected GIF/ANIMATION:', { file_id: fileId });
-        } else if (message.video) {
-          fileId = message.video.file_id;
-          isVideo = true;
-          console.log('[DISPLAY] Detected VIDEO:', { file_id: fileId });
-        } else if (message.video_note) {
-          fileId = message.video_note.file_id;
-          isVideo = true;
-          console.log('[DISPLAY] Detected VIDEO_NOTE:', { file_id: fileId, duration: message.video_note.duration });
-        }
-
-        if (!fileId) {
-          console.log('[DISPLAY] Message has no photo, video, animation, or video_note - ignoring');
+        const media = getMediaInfo(message);
+        if (media) {
+          console.log('[DISPLAY] Detected media:', media);
         }
 
         const text = message.text || message.caption || '';
@@ -486,26 +505,14 @@
           const displayText = text.substring(9);
           console.log('[DISPLAY] Received /display command:', displayText);
 
-          const sendReaction = (emoji) => {
-            fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                chat_id: message.chat.id,
-                message_id: message.message_id,
-                reaction: [{ type: 'emoji', emoji }]
-              })
-            }).catch(err => console.error('[DISPLAY] Failed to send reaction:', err));
-          };
-
           KeyboardCommands.sendCommand('runningText', displayText)
             .then(() => {
               console.log('[DISPLAY] Running text sent to HID');
-              sendReaction('👍');
+              sendReaction(message.chat.id, message.message_id, '👍');
             })
             .catch(err => {
               console.error('[DISPLAY] Failed to send running text:', err);
-              sendReaction('👎');
+              sendReaction(message.chat.id, message.message_id, '👎');
             });
         }
 
@@ -520,82 +527,33 @@
                   Math.floor(Math.random() * 128),
                   Math.floor(Math.random() * 128)
                 ];
-                const randomSymbols = Math.floor(Math.random() * 4096); // 12 bits
+                const randomSymbols = Math.floor(Math.random() * 4096);
                 await KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols });
                 console.log(`[DISPLAY] Sent random package ${i + 1}/100`);
               }
               console.log('[DISPLAY] All 100 random packages sent to HID');
-              await fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: message.chat.id,
-                  message_id: message.message_id,
-                  reaction: [{ type: 'emoji', emoji: '👍' }]
-                })
-              });
+              sendReaction(message.chat.id, message.message_id, '👍');
             } catch (err) {
               console.error('[DISPLAY] Failed to send random raw:', err);
             }
           })();
         }
 
-        if (fileId) {
-          console.log('[DISPLAY] Fetching file from Telegram API...');
-          fetch(`https://api.telegram.org/bot${apiKey}/getFile?file_id=${fileId}`)
+        if (media) {
+          fetch(`https://api.telegram.org/bot${apiKey}/getFile?file_id=${media.fileId}`)
             .then(res => res.json())
             .then(data => {
-              if (data.ok) {
-                const fileUrl = `https://api.telegram.org/file/bot${apiKey}/${data.result.file_path}`;
-                console.log('[DISPLAY] File fetched successfully:', {
-                  file_path: data.result.file_path,
-                  isVideo
-                });
-
-                welcomeEl.style.display = 'none';
-                photoViewEl.style.display = 'flex';
-                senderEl.textContent = sender;
-
-                if (isVideo) {
-                  console.log('[DISPLAY] Rendering as VIDEO element');
-                  photoEl.style.display = 'none';
-                  photoEl.src = '';
-                  videoEl.style.display = 'block';
-                  videoEl.src = fileUrl;
-                } else {
-                  console.log('[DISPLAY] Rendering as IMG element');
-                  videoEl.pause();
-                  videoEl.src = '';
-                  videoEl.style.display = 'none';
-                  photoEl.style.display = 'block';
-                  photoEl.src = fileUrl;
-                }
-
-                fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    chat_id: message.chat.id,
-                    message_id: message.message_id,
-                    reaction: [{ type: 'emoji', emoji: '👍' }]
-                  })
-                })
-                  .then(res => res.json())
-                  .then(reply => {
-                    if (reply.ok) {
-                      console.log('[DISPLAY] Reacted to message:', message.message_id);
-                    } else {
-                      console.error('[DISPLAY] Failed to send reaction:', reply);
-                    }
-                  })
-                  .catch(err => console.error('[DISPLAY] Error sending reaction:', err));
-              } else {
+              if (!data.ok) {
                 console.error('[DISPLAY] Telegram API error:', data);
+                return;
               }
+
+              const fileUrl = `https://api.telegram.org/file/bot${apiKey}/${data.result.file_path}`;
+              console.log('[DISPLAY] File fetched:', data.result.file_path);
+              displayMedia(fileUrl, media.isVideo, sender);
+              sendReaction(message.chat.id, message.message_id, '👍');
             })
-            .catch(err => {
-              console.error('[DISPLAY] Failed to fetch file:', err);
-            });
+            .catch(err => console.error('[DISPLAY] Failed to fetch file:', err));
         }
       }
 
