@@ -22,9 +22,44 @@
       height: 100%;
       border: none;
     }
+    .key-display-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      z-index: 9999;
+    }
+    .key-display-text {
+      font-size: 20vw;
+      font-weight: bold;
+      color: red;
+      -webkit-text-stroke: 4px blue;
+      text-stroke: 4px blue;
+      paint-order: stroke fill;
+      opacity: 0;
+      transform: scale(1);
+      transition: none;
+      text-align: center;
+      max-width: 90%;
+    }
+    .key-display-text.visible {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .key-display-text.fading {
+      opacity: 0;
+      transform: scale(1.5);
+      transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+    }
   </style>
 </head>
 <body>
+  <div class="key-display-overlay"><div class="key-display-text" id="keyDisplay"></div></div>
   <iframe id="displayFrame" sandbox="allow-scripts" src="plugin-media-display.html"></iframe>
 
   <script>
@@ -52,9 +87,81 @@
       // Timing
       TIME_SYNC_INTERVAL_MS: 60 * 60 * 1000,
       POLL_TIMEOUT_SECONDS: 30,
+      KEY_DISPLAY_DURATION_MS: 1000,
+      KEY_FADE_DURATION_MS: 800,
+    };
+
+    // Key mapping from hardware buttons
+    const KEY_MAP = {
+      'c': 'COOK',
+      'C': 'COOK',
+      'd': 'DEFROST',
+      'D': 'DEFROST',
+      'r': 'REHEAT',
+      'R': 'REHEAT',
+      'w': 'WAVES',
+      'W': 'WAVES',
+      't': 'TIME',
+      'T': 'TIME',
+      'e': 'ELEMENTS',
+      'E': 'ELEMENTS',
+      '+': 'PLUS',
+      '-': 'MINUS',
+      'z': 'TEN_MIN',
+      'Z': 'TEN_MIN',
+      'y': 'ONE_MIN',
+      'Y': 'ONE_MIN',
+      'x': 'TEN_SEC',
+      'X': 'TEN_SEC',
+      'Escape': 'STOP',
+      'Enter': 'START',
     };
 
     const displayFrame = document.getElementById('displayFrame');
+    const keyDisplayEl = document.getElementById('keyDisplay');
+
+    // ============================================================
+    // KeyDisplay - Key overlay handler (in parent)
+    // ============================================================
+    const KeyDisplay = (function() {
+      let fadeTimeout = null;
+      let removeTimeout = null;
+      let enabled = false;
+
+      function show(key) {
+        if (!enabled) return;
+
+        if (fadeTimeout) clearTimeout(fadeTimeout);
+        if (removeTimeout) clearTimeout(removeTimeout);
+
+        const displayName = KEY_MAP[key] || key.toUpperCase();
+        keyDisplayEl.classList.remove('fading');
+        keyDisplayEl.classList.remove('visible');
+        keyDisplayEl.textContent = displayName;
+
+        void keyDisplayEl.offsetWidth;
+
+        keyDisplayEl.classList.add('visible');
+
+        fadeTimeout = setTimeout(() => {
+          keyDisplayEl.classList.add('fading');
+          keyDisplayEl.classList.remove('visible');
+
+          removeTimeout = setTimeout(() => {
+            keyDisplayEl.classList.remove('fading');
+          }, CONFIG.KEY_FADE_DURATION_MS);
+        }, CONFIG.KEY_DISPLAY_DURATION_MS);
+      }
+
+      function setEnabled(value) {
+        enabled = value;
+        if (!enabled) {
+          keyDisplayEl.classList.remove('visible', 'fading');
+        }
+      }
+
+      return { show, setEnabled };
+    })();
 
     // ============================================================
     // KeyboardCommands - WebHID hardware interface
@@ -218,27 +325,31 @@
     })();
 
     // ============================================================
-    // Handle WebHID commands from child iframe
+    // Handle messages from child iframe
     // ============================================================
     window.addEventListener('message', async (event) => {
       if (event.source !== displayFrame.contentWindow) return;
 
       const msg = event.data;
-      if (!msg || msg.type !== 'hid') return;
+      if (!msg || !msg.type) return;
 
-      console.log('[Parent] Received HID command from child:', msg);
-
-      try {
-        if (msg.command === 'runningText') {
-          await KeyboardCommands.sendCommand('runningText', msg.text);
-          sendToChild({ type: 'hidResult', success: true, command: msg.command });
-        } else if (msg.command === 'raw') {
-          await KeyboardCommands.sendCommand('raw', { digits: msg.digits, symbols: msg.symbols });
-          sendToChild({ type: 'hidResult', success: true, command: msg.command });
+      if (msg.type === 'hid') {
+        console.log('[Parent] Received HID command from child:', msg);
+        try {
+          if (msg.command === 'runningText') {
+            await KeyboardCommands.sendCommand('runningText', msg.text);
+            sendToChild({ type: 'hidResult', success: true, command: msg.command });
+          } else if (msg.command === 'raw') {
+            await KeyboardCommands.sendCommand('raw', { digits: msg.digits, symbols: msg.symbols });
+            sendToChild({ type: 'hidResult', success: true, command: msg.command });
+          }
+        } catch (err) {
+          console.error('[Parent] HID command failed:', err);
+          sendToChild({ type: 'hidResult', success: false, command: msg.command, error: err.message });
         }
-      } catch (err) {
-        console.error('[Parent] HID command failed:', err);
-        sendToChild({ type: 'hidResult', success: false, command: msg.command, error: err.message });
+      } else if (msg.type === 'keyDisplayMode') {
+        KeyDisplay.setEnabled(msg.enabled);
+        console.log('[Parent] Key display mode:', msg.enabled ? 'on' : 'off');
       }
     });
 
@@ -246,7 +357,9 @@
     // Forward keypresses to child iframe
     // ============================================================
     document.addEventListener('keydown', (e) => {
-      sendToChild({ type: 'keypress', key: e.key });
+      KeyDisplay.show(e.key);
+      const description = KEY_MAP[e.key] || null;
+      sendToChild({ type: 'keypress', key: e.key, description });
     });
 
     function sendToChild(msg) {
@@ -496,7 +609,7 @@
         }
       }
 
-      // Listen for reaction requests from child
+      // Listen for reaction requests from child (added to main message handler above)
       window.addEventListener('message', async (event) => {
         if (event.source !== displayFrame.contentWindow) return;
         const msg = event.data;
