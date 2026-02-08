@@ -1,20 +1,12 @@
-# HardWave Display Plugins
+# Task guidance
 
-Plugins are sandboxed HTML pages loaded in an iframe that handle display and user interaction. The parent frame manages all sensitive operations (Telegram API, WebHID, credentials) while plugins focus purely on presentation.
+Write a HTML page that will be loaded into iframe on a device with a screen, no mouse and some special layout integrated keyboard.
 
-## Security Model
+Parent frame has a connection to a telegram chat and to special 7-segment clock, it will manage all stuff, you just need to communicate with it via postMessage. Your code will run in a sandboxed iframe with `sandbox="allow-scripts"`.
 
-Plugins are treated as **untrusted code**. They run in a sandboxed iframe with `sandbox="allow-scripts"`:
+Please keep code small enough but not smaller that it should be. Prioritize fast answer if it not hurts usability and code correctness. Add small instructions on what keys meaning is.
 
-- No access to parent's DOM or JavaScript context
-- No access to `localStorage`, `sessionStorage`, or cookies
-- No access to parent URL or query parameters (API keys stay hidden)
-- Cannot make same-origin requests
-- All communication happens via `postMessage`
-
-## Communication Protocol
-
-### Receiving Messages (Parent → Plugin)
+# Receiving Messages (Parent → Plugin)
 
 ```javascript
 window.addEventListener('message', (event) => {
@@ -61,7 +53,7 @@ window.addEventListener('message', (event) => {
 });
 ```
 
-### Sending Messages (Plugin → Parent)
+# Sending Messages (Plugin → Parent)
 
 ```javascript
 function sendToParent(msg) {
@@ -69,11 +61,9 @@ function sendToParent(msg) {
 }
 ```
 
-#### Available Message Types
-
 **Key Display Control**
 ```javascript
-// Enable/disable the key overlay in parent
+// Enable/disable the key overlay in parent, it will display all pressed keys in a big, overlapping bounce
 sendToParent({ type: 'keyDisplayMode', enabled: true });
 ```
 
@@ -106,149 +96,34 @@ sendToParent({
 });
 ```
 
-## Key Mapping
+# Keyboard
 
-The parent maps hardware button presses to descriptive names:
-
-| Key | Description |
-|-----|-------------|
-| `c`, `C` | COOK |
-| `d`, `D` | DEFROST |
-| `r`, `R` | REHEAT |
-| `w`, `W` | WAVES |
-| `t`, `T` | TIME |
-| `e`, `E` | ELEMENTS |
-| `+` | PLUS |
-| `-` | MINUS |
-| `z`, `Z` | TEN_MIN |
-| `y`, `Y` | ONE_MIN |
-| `x`, `X` | TEN_SEC |
-| `Escape` | STOP |
-| `Enter` | START |
-
-Plugins receive both `key` (raw) and `description` (mapped name or null).
-
-## Writing a Plugin
-
-### Minimal Example
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>My Plugin</title>
-  <style>
-    body {
-      margin: 0;
-      background: #000;
-      color: #fff;
-      font-family: sans-serif;
-    }
-  </style>
-</head>
-<body>
-  <div id="content">Loading...</div>
-
-  <script>
-    const contentEl = document.getElementById('content');
-
-    window.addEventListener('message', (event) => {
-      const msg = event.data;
-      if (!msg || !msg.type) return;
-
-      switch (msg.type) {
-        case 'init':
-          contentEl.textContent = 'Ready: ' + msg.chatName;
-          break;
-        case 'media':
-          if (msg.photoUrl) {
-            contentEl.innerHTML = `<img src="${msg.photoUrl}" style="max-width:100%">`;
-          }
-          break;
-      }
-    });
-  </script>
-</body>
-</html>
-```
-
-### Best Practices
-
-1. **Always handle `init`** - This is when you receive configuration and should set up your UI.
-
-2. **Key display is controlled by parent** - The `keyDisplay` setting in the plugin registry determines the default. Plugins can override this by sending `keyDisplayMode` message if needed.
-
-3. **Handle `displayOn`/`displayOff`** - Respect admin control over display visibility.
-
-4. **Don't assume message order** - Messages may arrive in any order; handle missing data gracefully.
-
-5. **Use `description` for key handling** - Prefer checking `msg.description === 'START'` over `msg.key === 'Enter'` for hardware button actions.
-
-6. **Request reactions via parent** - Never try to call Telegram API directly; send reaction requests to parent.
-
-7. **Keep state minimal** - The parent handles persistence; plugins should be stateless where possible.
-
-### Registering a Plugin
-
-Add your plugin to the `PLUGINS` registry in `index.html`:
-
-```javascript
-const PLUGINS = {
-  'media': { path: 'plugin-media-display.html', keyDisplay: true },
-  'my-plugin': { path: 'plugin-my-plugin.html', keyDisplay: false },
-};
-```
-
-Each plugin config has:
-- `path` - path to the plugin HTML file
-- `keyDisplay` - whether to show key overlay by default (can be overridden by plugin via `keyDisplayMode` message)
-
-### Loading Plugins via Telegram
-
-Use the `/plugin` command (admin-only):
-
-```
-/plugin              - List available plugins (current marked with *)
-/plugin media        - Load plugin by name
-/plugin https://...  - Load plugin from URL (untrusted)
-```
-
-When loading by name, the path is resolved from the `PLUGINS` registry. When loading by URL, the URL is used directly (useful for testing external plugins).
-
-## Data Flow Diagram
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Parent (index.html)                      │
-│                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-│  │ Telegram API │  │   WebHID     │  │  Key Display │       │
-│  │  - Polling   │  │  - Commands  │  │  - Overlay   │       │
-│  │  - Reactions │  │  - Time sync │  │  - Mapping   │       │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
-│         │                 │                 │                │
-│         └────────────┬────┴─────────────────┘                │
-│                      │                                       │
-│              postMessage (filtered data)                     │
-│                      ▼                                       │
-├─────────────────────────────────────────────────────────────┤
-│              iframe sandbox="allow-scripts"                  │
-│                      │                                       │
-│                      ▼                                       │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │              Plugin (untrusted)                      │    │
-│  │                                                      │    │
-│  │  - Receives: media URLs, commands, keypresses       │    │
-│  │  - Sends: HID requests, reactions, display mode     │    │
-│  │  - No access to: API keys, parent URL, localStorage │    │
-│  └─────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-# Task guidance
-
-Answer only as html (your result will be copied to file as is). Do explain what to press where possible and make usage obvious if you can.
+┌──────────────────────────────────────────┐
+│                                          │
+│  [ COOK ]                                │
+│                                          │
+├──────────────────────────────────────────┤
+│                                          │
+│  [ DEFROST ]                             │
+│                                          │
+├──────────────────────────────────────────┤
+│                                          │
+│  [ REHEAT ]                              │
+│                                          │
+├──────────────────────────────────────────┤
+│                                          │
+│  ┌─────────┐ ┌────────────┐ ┌─────────┐  │
+│  │  WAVES  │ │  ELEMENTS  │ │  PLUS   │  │
+│  │  TIME   │ │            │ │  MINUS  │  │
+│  └─────────┘ └────────────┘ └─────────┘  │
+│                                          │
+├──────────────────────────────────────────┤
+│  [ TEN_MIN ]  [ ONE_MIN ]  [ TEN_SEC ]   │
+├──────────────────────────────────────────┤
+│                                          │
+│  [  STOP  ]                 [  START  ]  │
+│                                          │
+└──────────────────────────────────────────┘
 
 # Task
 
