@@ -91,6 +91,13 @@
       KEY_FADE_DURATION_MS: 800,
     };
 
+    // Plugin registry: name -> path
+    const PLUGINS = {
+      'media': 'plugin-media-display.html',
+    };
+
+    const DEFAULT_PLUGIN = 'media';
+
     // Key mapping from hardware buttons
     const KEY_MAP = {
       'c': 'COOK',
@@ -119,6 +126,43 @@
 
     const displayFrame = document.getElementById('displayFrame');
     const keyDisplayEl = document.getElementById('keyDisplay');
+
+    // ============================================================
+    // PluginManager - Load and manage plugins
+    // ============================================================
+    const PluginManager = (function() {
+      let currentPlugin = DEFAULT_PLUGIN;
+      let onLoadCallback = null;
+
+      function getPluginList() {
+        return Object.keys(PLUGINS);
+      }
+
+      function loadPlugin(nameOrUrl) {
+        const pluginPath = PLUGINS[nameOrUrl] || nameOrUrl;
+        currentPlugin = nameOrUrl;
+        console.log('[PluginManager] Loading plugin:', nameOrUrl, '->', pluginPath);
+        displayFrame.src = pluginPath;
+      }
+
+      function getCurrentPlugin() {
+        return currentPlugin;
+      }
+
+      function setOnLoadCallback(callback) {
+        onLoadCallback = callback;
+      }
+
+      function triggerOnLoad() {
+        if (onLoadCallback) onLoadCallback();
+      }
+
+      displayFrame.addEventListener('load', () => {
+        triggerOnLoad();
+      });
+
+      return { getPluginList, loadPlugin, getCurrentPlugin, setOnLoadCallback };
+    })();
 
     // ============================================================
     // KeyDisplay - Key overlay handler (in parent)
@@ -413,7 +457,22 @@
         await res.json();
       }
 
-      return { init, sendReaction, getFileUrl, getUpdates, acknowledgeUpdate };
+      async function sendMessage(chatId, text) {
+        try {
+          await fetch(`https://api.telegram.org/bot${apiKey}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: text
+            })
+          });
+        } catch (err) {
+          console.error('[TelegramAPI] Failed to send message:', err);
+        }
+      }
+
+      return { init, sendReaction, getFileUrl, getUpdates, acknowledgeUpdate, sendMessage };
     })();
 
     // ============================================================
@@ -432,25 +491,20 @@
 
       console.log('[CONFIG] URL parameters:', { hasApiKey: !!queryKey, keepAspectRatio, requireUsername, allowedChatId, adminIdsParam });
 
-      // Send initial config to child (without sensitive data)
-      displayFrame.onload = () => {
-        sendToChild({ type: 'init', chatName: CONFIG.CHAT_NAME, keepAspectRatio });
-      };
-
       // Validate required params
       if (!queryKey) {
         console.error('[CONFIG] No API key found in URL - aborting');
-        displayFrame.onload = () => sendToChild({ type: 'error', message: 'api_key not found in URL' });
+        PluginManager.setOnLoadCallback(() => sendToChild({ type: 'error', message: 'api_key not found in URL' }));
         return;
       }
       if (!allowedChatId) {
         console.error('[CONFIG] No chat_id found in URL - aborting');
-        displayFrame.onload = () => sendToChild({ type: 'error', message: 'chat_id not found in URL' });
+        PluginManager.setOnLoadCallback(() => sendToChild({ type: 'error', message: 'chat_id not found in URL' }));
         return;
       }
       if (!adminIdsParam) {
         console.error('[CONFIG] No admin_ids found in URL - aborting');
-        displayFrame.onload = () => sendToChild({ type: 'error', message: 'admin_ids not found in URL' });
+        PluginManager.setOnLoadCallback(() => sendToChild({ type: 'error', message: 'admin_ids not found in URL' }));
         return;
       }
 
@@ -465,17 +519,25 @@
       let displayEnabled = localStorage.getItem(DISPLAY_STATUS_KEY) !== 'off';
       console.log('[CONFIG] Display enabled:', displayEnabled);
 
-      displayFrame.onload = () => {
+      PluginManager.setOnLoadCallback(() => {
         sendToChild({ type: 'init', chatName: CONFIG.CHAT_NAME, keepAspectRatio });
         if (!displayEnabled) {
           sendToChild({ type: 'displayOff' });
         }
-      };
+      });
 
       function isAdminCommand(message, commandText) {
         const isFromAdmin = message.from && adminIds.includes(message.from.id);
         const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
         const isCommand = (message.text || '') === commandText;
+        return isFromAdmin && !isForwarded && isCommand;
+      }
+
+      function isAdminCommandPrefix(message, commandPrefix) {
+        const isFromAdmin = message.from && adminIds.includes(message.from.id);
+        const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
+        const text = message.text || '';
+        const isCommand = text === commandPrefix || text.startsWith(commandPrefix + ' ');
         return isFromAdmin && !isForwarded && isCommand;
       }
 
@@ -525,6 +587,26 @@
           await TelegramAPI.acknowledgeUpdate(update.update_id + 1);
           console.log('[COMMAND] Reload acknowledged, reloading page...');
           location.reload();
+          return;
+        }
+
+        if (isAdminCommandPrefix(message, '/plugin')) {
+          const text = message.text || '';
+          const arg = text.substring('/plugin'.length).trim();
+
+          if (!arg) {
+            // List available plugins
+            const plugins = PluginManager.getPluginList();
+            const current = PluginManager.getCurrentPlugin();
+            const list = plugins.map(p => (p === current ? `* ${p}` : `  ${p}`)).join('\n');
+            await TelegramAPI.sendMessage(message.chat.id, `Available plugins:\n${list}\n\nUsage: /plugin <name|url>`);
+            await TelegramAPI.sendReaction(message.chat.id, message.message_id, '👀');
+          } else {
+            // Load plugin by name or URL
+            console.log('[COMMAND] /plugin triggered by admin:', message.from.id, 'arg:', arg);
+            PluginManager.loadPlugin(arg);
+            await TelegramAPI.sendReaction(message.chat.id, message.message_id, '👀');
+          }
           return;
         }
 
