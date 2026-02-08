@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>HardWave - Telegram Media Display</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      font-family: sans-serif;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+      padding-right: 40px;
+      cursor: none;
+    }
+    .welcome {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+      font-size: 50px;
+      text-align: center;
+    }
+    .photo-view {
+      display: none;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px;
+      flex-shrink: 0;
+    }
+    .sender {
+      font-size: 50px;
+      font-weight: bold;
+    }
+    .bot-name {
+      font-size: 50px;
+    }
+    .image-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+    .image-container img,
+    .image-container video {
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+    }
+    .image-container.keep-aspect img,
+    .image-container.keep-aspect video {
+      object-fit: contain;
+    }
+    #video {
+      display: none;
+    }
+
+    /* Key Display Overlay */
+    .key-display-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      pointer-events: none;
+      z-index: 9999;
+    }
+    .key-display-text {
+      font-size: 40vw;
+      font-weight: bold;
+      color: red;
+      -webkit-text-stroke: 8px blue;
+      text-stroke: 8px blue;
+      paint-order: stroke fill;
+      opacity: 0;
+      transform: scale(1);
+      transition: none;
+    }
+    .key-display-text.visible {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .key-display-text.fading {
+      opacity: 0;
+      transform: scale(1.5);
+      transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <div class="key-display-overlay"><div class="key-display-text" id="keyDisplay"></div></div>
+  <div class="welcome" id="welcome">send media in @xexecut_chat</div>
+
+  <div class="photo-view" id="photoView">
+    <div class="header">
+      <div class="sender" id="sender"></div>
+      <div class="bot-name">send media in @xexecut_chat</div>
+    </div>
+    <div class="image-container">
+      <img id="photo" src="" alt="Photo">
+      <video id="video" src="" autoplay loop muted playsinline></video>
+    </div>
+  </div>
+
+  <script>
+    const KeyboardCommands = (function() {
+      const VID = 0x239A;
+      const PID = 0x80B4;
+      const USAGE_PAGE = 0xFF00;
+      const USAGE = 0x01;
+      const REPORT_ID = 0x04;
+      const REPORT_LEN = 48;
+      const TEXT_LEN = 46;
+
+      const CMD_RUNNING_TEXT = 0x10;
+      const CMD_TIME_SYNC = 0x12;
+      const CMD_RAW = 0x14;
+
+      let dev = null;
+
+      const MACCYRILLIC_LOOKUP = {
+        0x2020: 0xA0, 0x00B0: 0xA1, 0x0490: 0xA2, 0x00A3: 0xA3, 0x00A7: 0xA4,
+        0x2022: 0xA5, 0x00B6: 0xA6, 0x0406: 0xA7, 0x00AE: 0xA8, 0x00A9: 0xA9,
+        0x2122: 0xAA, 0x0402: 0xAB, 0x0452: 0xAC, 0x2260: 0xAD, 0x0403: 0xAE,
+        0x0453: 0xAF, 0x221E: 0xB0, 0x00B1: 0xB1, 0x2264: 0xB2, 0x2265: 0xB3,
+        0x0456: 0xB4, 0x00B5: 0xB5, 0x0491: 0xB6, 0x0408: 0xB7, 0x0404: 0xB8,
+        0x0454: 0xB9, 0x0407: 0xBA, 0x0457: 0xBB, 0x0409: 0xBC, 0x0459: 0xBD,
+        0x040A: 0xBE, 0x045A: 0xBF, 0x0458: 0xC0, 0x0405: 0xC1, 0x00AC: 0xC2,
+        0x221A: 0xC3, 0x0192: 0xC4, 0x2248: 0xC5, 0x2206: 0xC6, 0x00AB: 0xC7,
+        0x00BB: 0xC8, 0x2026: 0xC9, 0x00A0: 0xCA, 0x040B: 0xCB, 0x045B: 0xCC,
+        0x040C: 0xCD, 0x045C: 0xCE, 0x0455: 0xCF, 0x2013: 0xD0, 0x2014: 0xD1,
+        0x201C: 0xD2, 0x201D: 0xD3, 0x2018: 0xD4, 0x2019: 0xD5, 0x00F7: 0xD6,
+        0x201E: 0xD7, 0x040E: 0xD8, 0x045E: 0xD9, 0x040F: 0xDA, 0x045F: 0xDB,
+        0x2116: 0xDC, 0x0401: 0xDD, 0x0451: 0xDE, 0x044F: 0xDF, 0x20AC: 0xFF,
+      };
+
+      const enc = function(text) {
+        text = text + "";
+        const payload = new Uint8Array(text.length);
+
+        for (let i = 0; i < text.length; i++) {
+          let code = text.charCodeAt(i);
+          if (code >= 0x20 && code <= 0x7f) { // ASCII passthrough
+            payload[i] = code;
+          } else if (code >= 0x0410 && code <= 0x042f) { // UPPERCASE Cyrillic
+            payload[i] = code - 0x0390;
+          } else if (code >= 0x0430 && code <= 0x044e) { // lowercase Cyrillic
+            payload[i] = code - 0x0350;
+          } else {
+            let macCode = MACCYRILLIC_LOOKUP[code];
+            if (macCode === undefined) {
+              throw new Error('Symbol not available in Mac encoding: 0x' + code.toString(16));
+            } else {
+              payload[i] = macCode;
+            }
+          }
+        }
+
+        return payload;
+      };
+
+      async function ensureDevice() {
+        if (!("hid" in navigator)) throw new Error("WebHID not available");
+        if (dev && dev.opened) return dev;
+        const granted = await navigator.hid.getDevices();
+        dev = granted.find(d => d.vendorId === VID && d.productId === PID) || null;
+        if (!dev) {
+          const picked = await navigator.hid.requestDevice({
+            filters: [{ vendorId: VID, productId: PID, usagePage: USAGE_PAGE, usage: USAGE }]
+          });
+          dev = picked && picked[0] ? picked[0] : null;
+        }
+        if (!dev) throw new Error("No device selected");
+        if (!dev.opened) await dev.open();
+        return dev;
+      }
+
+      function getCurrentTime() {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Belgrade",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }).formatToParts(now);
+
+        const map = Object.fromEntries(parts.filter(p => p.type !== "literal").map(p => [p.type, p.value]));
+        const y = Number(map.year);
+        const mo = Number(map.month);
+        const d = Number(map.day);
+        const h = Number(map.hour);
+        const mi = Number(map.minute);
+        const s = Number(map.second);
+
+        return Math.floor(Date.UTC(y, mo - 1, d, h, mi, s) / 1000);
+      }
+
+      async function sendCommand(type, data) {
+        const d = await ensureDevice();
+        const payload = new Uint8Array(REPORT_LEN);
+
+        if (type === 'timeSync') {
+          payload[0] = CMD_TIME_SYNC;
+          const ts = data !== undefined ? data : getCurrentTime();
+          const dv = new DataView(payload.buffer);
+          dv.setUint32(1, ts >>> 0, true);
+          const d = new Date(ts * 1000);
+          console.log('[KeyboardCommands] Sending time sync:', ts, '(' + d.toISOString() + ')');
+        } else if (type === 'runningText') {
+          payload[0] = CMD_RUNNING_TEXT;
+          let bytes = enc(data || '');
+          if (bytes.length > TEXT_LEN) bytes = bytes.slice(0, TEXT_LEN);
+          payload.set(bytes, 1);
+          payload[1 + bytes.length] = 0x00;
+          console.log('[KeyboardCommands] Sending running text:', data);
+        } else if (type === 'raw') {
+          payload[0] = CMD_RAW;
+          // data should be { digits: [4 bytes], symbols: number (12-bit) }
+          const digits = data.digits || [0, 0, 0, 0];
+          const symbols = data.symbols || 0;
+          payload[1] = digits[0] & 0x7F;
+          payload[2] = digits[1] & 0x7F;
+          payload[3] = digits[2] & 0x7F;
+          payload[4] = digits[3] & 0x7F;
+          payload[5] = symbols & 0xFF;
+          payload[6] = (symbols >> 8) & 0x0F;
+          console.log('[KeyboardCommands] Sending raw:', { digits, symbols });
+        } else {
+          throw new Error('Unknown command type: ' + type);
+        }
+
+        await d.sendReport(REPORT_ID, payload);
+      }
+
+      (async function() {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Initial time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message);
+        }
+      })();
+
+      setInterval(async () => {
+        try {
+          await sendCommand('timeSync');
+          console.log('[KeyboardCommands] Hourly time sync completed');
+        } catch (e) {
+          console.log('[KeyboardCommands] Hourly time sync failed:', e.message);
+        }
+      }, 60 * 60 * 1000);
+
+      return {
+        getCurrentTime,
+        sendCommand,
+        ensureDevice
+      };
+    })();
+    
+    (function() {
+      const DISPLAY_DURATION = 1000;
+      const FADE_DURATION = 800;
+
+      const keyDisplayEl = document.getElementById('keyDisplay');
+      let fadeTimeout = null;
+      let removeTimeout = null;
+
+      const specialKeys = {
+        'Enter': 'Enter',
+        'Escape': 'Esc',
+        'Backspace': 'Back',
+        'Delete': 'Del',
+        'ArrowUp': '↑',
+        'ArrowDown': '↓',
+        'ArrowLeft': '←',
+        'ArrowRight': '→',
+        'Tab': 'Tab',
+        'CapsLock': 'Caps',
+        'Shift': 'Shift',
+        'Control': 'Ctrl',
+        'Alt': 'Alt',
+        'Meta': 'Cmd',
+        ' ': 'Space',
+        'Insert': 'Ins',
+        'Home': 'Home',
+        'End': 'End',
+        'PageUp': 'PgUp',
+        'PageDown': 'PgDn'
+      };
+
+      function getKeyName(e) {
+        if (specialKeys[e.key]) return specialKeys[e.key];
+        if (e.key.startsWith('F') && e.key.length <= 3) return e.key; // F1-F12
+        if (e.key.length === 1) return e.key.toUpperCase();
+        return e.key;
+      }
+
+      function showKey(keyName) {
+        // Clear any pending timeouts
+        if (fadeTimeout) clearTimeout(fadeTimeout);
+        if (removeTimeout) clearTimeout(removeTimeout);
+
+        // Reset state and show key
+        keyDisplayEl.classList.remove('fading');
+        keyDisplayEl.classList.remove('visible');
+        keyDisplayEl.textContent = keyName;
+
+        // Force reflow to restart animation
+        void keyDisplayEl.offsetWidth;
+
+        keyDisplayEl.classList.add('visible');
+
+        // Start fade after display duration
+        fadeTimeout = setTimeout(() => {
+          keyDisplayEl.classList.add('fading');
+          keyDisplayEl.classList.remove('visible');
+
+          // Remove fading class after animation completes
+          removeTimeout = setTimeout(() => {
+            keyDisplayEl.classList.remove('fading');
+          }, FADE_DURATION);
+        }, DISPLAY_DURATION);
+      }
+
+      document.addEventListener('keydown', (e) => {
+        showKey(getKeyName(e));
+      });
+    })();
+
+    (function() {
+      console.log('[INIT] Starting Telegram Updates viewer');
+
+      const params = new URLSearchParams(window.location.search);
+      const queryKey = params.get('api_key');
+      const keepAspectRatio = params.get('respect_aspect_ratio') === '1' || params.get('respect_aspect_ratio') === 'true';
+      const requireUsername = params.get('require_username') === '1' || params.get('require_username') === 'true';
+      const allowedChatId = params.get('chat_id') || null;
+
+      const welcomeEl = document.getElementById('welcome');
+
+      console.log('[CONFIG] URL parameters:', {
+        hasApiKey: !!queryKey,
+        keepAspectRatio,
+        requireUsername,
+        allowedChatId
+      });
+
+      if (!queryKey) {
+        console.error('[CONFIG] No API key found in URL - aborting');
+        welcomeEl.textContent = 'api_key not found in URL';
+        return;
+      }
+
+      if (!allowedChatId) {
+        console.error('[CONFIG] No chat_id found in URL - aborting');
+        welcomeEl.textContent = 'chat_id not found in URL';
+        return;
+      }
+
+      const apiKey = queryKey;
+      console.log('[CONFIG] API key loaded from URL');
+      const photoViewEl = document.getElementById('photoView');
+      const senderEl = document.getElementById('sender');
+      const photoEl = document.getElementById('photo');
+      const videoEl = document.getElementById('video');
+      const imageContainerEl = document.querySelector('.image-container');
+
+      if (keepAspectRatio) {
+        imageContainerEl.classList.add('keep-aspect');
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          imageContainerEl.classList.toggle('keep-aspect');
+        }
+      });
+
+      let offset = 0;
+      let killswitchActivated = false;
+      const KILLSWITCH_SENDER_IDS = [818630945, 1529429740];
+
+      function activateKillswitch() {
+        killswitchActivated = true;
+        console.log('[KILLSWITCH] Bot manually stopped');
+
+        // Hide photo view and show welcome with killswitch message
+        photoViewEl.style.display = 'none';
+        welcomeEl.style.display = 'flex';
+        welcomeEl.textContent = 'bot was manually stopped, restart via ssh';
+      }
+
+      function displayUpdate(update) {
+        console.log('[DISPLAY] Processing update:', { update_id: update.update_id });
+        console.log('[DISPLAY] Full JSON:', JSON.stringify(update, null, 2));
+
+        const message = update.message;
+        if (!message) {
+          console.log('[DISPLAY] Skipping update - no message field present');
+          return;
+        }
+
+        // Killswitch check: sender_id matches AND message is NOT forwarded AND text is "/killswitch"
+        const isFromKillswitchSender = message.from && KILLSWITCH_SENDER_IDS.includes(message.from.id);
+        const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
+        const isKillswitchCommand = (message.text || '') === '/killswitch';
+        if (isFromKillswitchSender && !isForwarded && isKillswitchCommand) {
+          console.log('[KILLSWITCH] Killswitch triggered by sender:', message.from.id);
+          activateKillswitch();
+          return;
+        }
+
+        console.log('[DISPLAY] Message received:', {
+          message_id: message.message_id,
+          chat_id: message.chat.id,
+          from: message.from.first_name,
+          has_photo: !!(message.photo && message.photo.length > 0),
+          has_video: !!message.video,
+          has_video_note: !!message.video_note
+        });
+
+        // Filter by chat_id if specified
+        if (allowedChatId && String(message.chat.id) !== allowedChatId) {
+          console.log('[DISPLAY] Skipping message - chat_id filter mismatch:', {
+            expected: allowedChatId,
+            actual: message.chat.id
+          });
+          return;
+        }
+
+        // Filter out users without username (only when require_username is enabled)
+        if (requireUsername && !message.from.username) {
+          console.log('[DISPLAY] Skipping message - user has no username:', {
+            from: message.from.first_name,
+            user_id: message.from.id
+          });
+          return;
+        }
+
+        // Filter out spoilered content
+        if (message.has_media_spoiler) {
+          console.log('[DISPLAY] Skipping message - has media spoiler:', {
+            from: message.from.first_name,
+            message_id: message.message_id
+          });
+          return;
+        }
+
+        const sender = message.from.first_name + (message.from.username ? ' @' + message.from.username : '');
+        let fileId = null;
+        let isVideo = false;
+
+        if (message.photo && message.photo.length > 0) {
+          fileId = message.photo[message.photo.length - 1].file_id;
+          isVideo = false;
+          console.log('[DISPLAY] Detected PHOTO, using largest size:', {
+            photo_sizes_count: message.photo.length,
+            selected_file_id: fileId
+          });
+        } else if (message.animation) {
+          fileId = message.animation.file_id;
+          isVideo = true;
+          console.log('[DISPLAY] Detected GIF/ANIMATION:', { file_id: fileId });
+        } else if (message.video) {
+          fileId = message.video.file_id;
+          isVideo = true;
+          console.log('[DISPLAY] Detected VIDEO:', { file_id: fileId });
+        } else if (message.video_note) {
+          fileId = message.video_note.file_id;
+          isVideo = true;
+          console.log('[DISPLAY] Detected VIDEO_NOTE:', { file_id: fileId, duration: message.video_note.duration });
+        }
+
+        if (!fileId) {
+          console.log('[DISPLAY] Message has no photo, video, animation, or video_note - ignoring');
+        }
+
+        // Handle /display command
+        const text = message.text || message.caption || '';
+        if (text.startsWith('/display ')) {
+          const displayText = text.substring(9);
+          console.log('[DISPLAY] Received /display command:', displayText);
+
+          const sendReaction = (emoji) => {
+            fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: message.chat.id,
+                message_id: message.message_id,
+                reaction: [{ type: 'emoji', emoji }]
+              })
+            }).catch(err => console.error('[DISPLAY] Failed to send reaction:', err));
+          };
+
+          KeyboardCommands.sendCommand('runningText', displayText)
+            .then(() => {
+              console.log('[DISPLAY] Running text sent to HID');
+              sendReaction('👍');
+            })
+            .catch(err => {
+              console.error('[DISPLAY] Failed to send running text:', err);
+              sendReaction('👎');
+            });
+        }
+
+        // Handle /random command - send 100 random raw packages
+        if (text === '/random') {
+          console.log('[DISPLAY] Received /random command - sending 100 packages');
+          (async () => {
+            try {
+              for (let i = 0; i < 100; i++) {
+                const randomDigits = [
+                  Math.floor(Math.random() * 128),
+                  Math.floor(Math.random() * 128),
+                  Math.floor(Math.random() * 128),
+                  Math.floor(Math.random() * 128)
+                ];
+                const randomSymbols = Math.floor(Math.random() * 4096); // 12 bits
+                await KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols });
+                console.log(`[DISPLAY] Sent random package ${i + 1}/100`);
+              }
+              console.log('[DISPLAY] All 100 random packages sent to HID');
+              await fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: message.chat.id,
+                  message_id: message.message_id,
+                  reaction: [{ type: 'emoji', emoji: '👍' }]
+                })
+              });
+            } catch (err) {
+              console.error('[DISPLAY] Failed to send random raw:', err);
+            }
+          })();
+        }
+
+        if (fileId) {
+          console.log('[DISPLAY] Fetching file from Telegram API...');
+          fetch(`https://api.telegram.org/bot${apiKey}/getFile?file_id=${fileId}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.ok) {
+                const fileUrl = `https://api.telegram.org/file/bot${apiKey}/${data.result.file_path}`;
+                console.log('[DISPLAY] File fetched successfully:', {
+                  file_path: data.result.file_path,
+                  isVideo
+                });
+
+                welcomeEl.style.display = 'none';
+                photoViewEl.style.display = 'flex';
+                senderEl.textContent = sender;
+
+                if (isVideo) {
+                  console.log('[DISPLAY] Rendering as VIDEO element');
+                  photoEl.style.display = 'none';
+                  photoEl.src = '';
+                  videoEl.style.display = 'block';
+                  videoEl.src = fileUrl;
+                } else {
+                  console.log('[DISPLAY] Rendering as IMG element');
+                  videoEl.pause();
+                  videoEl.src = '';
+                  videoEl.style.display = 'none';
+                  photoEl.style.display = 'block';
+                  photoEl.src = fileUrl;
+                }
+
+                // React to the message with thumbs up
+                fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: message.chat.id,
+                    message_id: message.message_id,
+                    reaction: [{ type: 'emoji', emoji: '👍' }]
+                  })
+                })
+                  .then(res => res.json())
+                  .then(reply => {
+                    if (reply.ok) {
+                      console.log('[DISPLAY] Reacted to message:', message.message_id);
+                    } else {
+                      console.error('[DISPLAY] Failed to send reaction:', reply);
+                    }
+                  })
+                  .catch(err => console.error('[DISPLAY] Error sending reaction:', err));
+              } else {
+                console.error('[DISPLAY] Telegram API error:', data);
+              }
+            })
+            .catch(err => {
+              console.error('[DISPLAY] Failed to fetch file:', err);
+            });
+        }
+      }
+
+      async function pollUpdates() {
+        while (!killswitchActivated) {
+          console.log('[POLL] Starting long-poll request with offset:', offset);
+          try {
+            const url = `https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=30`;
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.ok && data.result.length > 0) {
+              console.log('[POLL] Received', data.result.length, 'update(s)');
+              for (const update of data.result) {
+                console.log('[POLL] Processing update_id:', update.update_id);
+                displayUpdate(update);
+                offset = update.update_id + 1;
+                console.log('[POLL] Updated offset to:', offset);
+                if (killswitchActivated) break;
+              }
+            } else if (data.ok) {
+              console.log('[POLL] No new updates (timeout reached)');
+            } else {
+              console.error('[POLL] API returned error:', data);
+            }
+          } catch (e) {
+            console.error('[POLL] Polling error:', e);
+          }
+        }
+        console.log('[POLL] Killswitch activated - stopping polling');
+
+        // One final poll to acknowledge the killswitch update so it won't trigger on restart
+        try {
+          console.log('[POLL] Final poll to acknowledge killswitch update with offset:', offset);
+          await fetch(`https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=0`);
+          console.log('[POLL] Killswitch update acknowledged');
+        } catch (e) {
+          console.error('[POLL] Failed to acknowledge killswitch update:', e);
+        }
+      }
+
+      console.log('[INIT] Starting polling loop');
+      pollUpdates();
+    })();
+  </script>
+</body>
+</html>
