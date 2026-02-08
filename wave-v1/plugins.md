@@ -160,8 +160,6 @@ Plugins receive both `key` (raw) and `description` (mapped name or null).
       switch (msg.type) {
         case 'init':
           contentEl.textContent = 'Ready: ' + msg.chatName;
-          // Enable key display overlay
-          window.parent.postMessage({ type: 'keyDisplayMode', enabled: true }, '*');
           break;
         case 'media':
           if (msg.photoUrl) {
@@ -179,7 +177,7 @@ Plugins receive both `key` (raw) and `description` (mapped name or null).
 
 1. **Always handle `init`** - This is when you receive configuration and should set up your UI.
 
-2. **Enable key display if needed** - Send `keyDisplayMode` message during init if you want the key overlay.
+2. **Key display is controlled by parent** - The `keyDisplay` setting in the plugin registry determines the default. Plugins can override this by sending `keyDisplayMode` message if needed.
 
 3. **Handle `displayOn`/`displayOff`** - Respect admin control over display visibility.
 
@@ -197,10 +195,14 @@ Add your plugin to the `PLUGINS` registry in `index.html`:
 
 ```javascript
 const PLUGINS = {
-  'media': 'plugin-media-display.html',
-  'my-plugin': 'plugin-my-plugin.html',
+  'media': { path: 'plugin-media-display.html', keyDisplay: true },
+  'my-plugin': { path: 'plugin-my-plugin.html', keyDisplay: false },
 };
 ```
+
+Each plugin config has:
+- `path` - path to the plugin HTML file
+- `keyDisplay` - whether to show key overlay by default (can be overridden by plugin via `keyDisplayMode` message)
 
 ### Loading Plugins via Telegram
 
@@ -243,3 +245,11 @@ When loading by name, the path is resolved from the `PLUGINS` registry. When loa
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+# Task guidance
+
+Answer only as html (your result will be copied to file as is). Do explain what to press where possible and make usage obvious if you can.
+
+# Task
+
+Make a snake game

@@ -91,10 +91,10 @@
       KEY_FADE_DURATION_MS: 800,
     };
 
-    // Plugin registry: name -> path
+    // Plugin registry: name -> { path, keyDisplay (default) }
     const PLUGINS = {
-      'media': 'plugin-media-display.html',
-      'snake': 'plugin-snake.html',
+      'media': { path: 'plugin-media-display.html', keyDisplay: true },
+      'snake': { path: 'plugin-snake.html', keyDisplay: false },
     };
 
     const DEFAULT_PLUGIN = 'media';
@@ -139,15 +139,28 @@
         return Object.keys(PLUGINS);
       }
 
+      function getPluginConfig(nameOrUrl) {
+        const config = PLUGINS[nameOrUrl];
+        if (config) {
+          return { path: config.path, keyDisplay: config.keyDisplay ?? false, isRegistered: true };
+        }
+        // External URL - no key display by default
+        return { path: nameOrUrl, keyDisplay: false, isRegistered: false };
+      }
+
       function loadPlugin(nameOrUrl) {
-        const pluginPath = PLUGINS[nameOrUrl] || nameOrUrl;
+        const config = getPluginConfig(nameOrUrl);
         currentPlugin = nameOrUrl;
-        console.log('[PluginManager] Loading plugin:', nameOrUrl, '->', pluginPath);
-        displayFrame.src = pluginPath;
+        console.log('[PluginManager] Loading plugin:', nameOrUrl, '->', config.path, 'keyDisplay:', config.keyDisplay);
+        displayFrame.src = config.path;
       }
 
       function getCurrentPlugin() {
         return currentPlugin;
+      }
+
+      function getCurrentKeyDisplayDefault() {
+        return getPluginConfig(currentPlugin).keyDisplay;
       }
 
       function setOnLoadCallback(callback) {
@@ -156,6 +169,8 @@
 
       function triggerOnLoad() {
         if (onLoadCallback) onLoadCallback();
+        // Apply default key display setting for this plugin
+        KeyDisplay.setEnabled(getCurrentKeyDisplayDefault());
       }
 
       displayFrame.addEventListener('load', () => {
