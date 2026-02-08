@@ -255,22 +255,14 @@
         await d.sendReport(REPORT_ID, payload);
       }
 
-      (async function() {
-        try {
-          await sendCommand('timeSync');
-          console.log('[KeyboardCommands] Initial time sync completed');
-        } catch (e) {
-          console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message);
-        }
-      })();
+      sendCommand('timeSync')
+        .then(() => console.log('[KeyboardCommands] Initial time sync completed'))
+        .catch(e => console.log('[KeyboardCommands] Initial time sync skipped (no device):', e.message));
 
-      setInterval(async () => {
-        try {
-          await sendCommand('timeSync');
-          console.log('[KeyboardCommands] Hourly time sync completed');
-        } catch (e) {
-          console.log('[KeyboardCommands] Hourly time sync failed:', e.message);
-        }
+      setInterval(() => {
+        sendCommand('timeSync')
+          .then(() => console.log('[KeyboardCommands] Hourly time sync completed'))
+          .catch(e => console.log('[KeyboardCommands] Hourly time sync failed:', e.message));
       }, 60 * 60 * 1000);
 
       return {
@@ -280,7 +272,7 @@
       };
     })();
     
-    (function() {
+    const Keyboard = (function KeyboardHandler() {
       const DISPLAY_DURATION = 1000;
       const FADE_DURATION = 800;
 
@@ -293,9 +285,11 @@
         'Escape': 'Esc'
       };
 
+      const keyHandlers = {};
+
       function getKeyName(e) {
         if (specialKeys[e.key]) return specialKeys[e.key];
-        if (e.key.startsWith('F') && e.key.length <= 3) return e.key; // F1-F12
+        if (e.key.startsWith('F') && e.key.length <= 3) return e.key;
         if (e.key.length === 1) return e.key.toUpperCase();
         return e.key;
       }
@@ -324,10 +318,15 @@
 
       document.addEventListener('keydown', (e) => {
         showKey(getKeyName(e));
+        if (keyHandlers[e.key]) keyHandlers[e.key](e);
       });
+
+      return {
+        onKey: (key, handler) => { keyHandlers[key] = handler; }
+      };
     })();
 
-    (function() {
+    (function TelegramViewer() {
       console.log('[INIT] Starting Telegram Updates viewer');
 
       const params = new URLSearchParams(window.location.search);
@@ -424,10 +423,8 @@
         imageContainerEl.classList.add('keep-aspect');
       }
 
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          imageContainerEl.classList.toggle('keep-aspect');
-        }
+      Keyboard.onKey('Enter', () => {
+        imageContainerEl.classList.toggle('keep-aspect');
       });
 
       let offset = 0;
