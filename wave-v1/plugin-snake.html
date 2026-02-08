@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Snake Plugin</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #0f0;
+      font-family: monospace;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: #000;
+    }
+    #overlay {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      font-size: 14px;
+      color: #0f0;
+    }
+    #center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #0f0;
+      font-size: 20px;
+      text-align: center;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay">SNAKE</div>
+  <div id="center" style="display:none"></div>
+  <canvas id="game"></canvas>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const center = document.getElementById('center');
+
+    let gridSize = 20;
+    let cols, rows;
+
+    function resize() {
+      const size = Math.min(window.innerWidth, window.innerHeight);
+      canvas.width = size;
+      canvas.height = size;
+      cols = Math.floor(size / gridSize);
+      rows = Math.floor(size / gridSize);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    let snake, dir, food, timer, running = false, score = 0;
+
+    function reset() {
+      snake = [{ x: Math.floor(cols / 2), y: Math.floor(rows / 2) }];
+      dir = { x: 1, y: 0 };
+      score = 0;
+      spawnFood();
+      running = true;
+      center.style.display = 'none';
+    }
+
+    function spawnFood() {
+      while (true) {
+        const f = {
+          x: Math.floor(Math.random() * cols),
+          y: Math.floor(Math.random() * rows)
+        };
+        if (!snake.some(s => s.x === f.x && s.y === f.y)) {
+          food = f;
+          return;
+        }
+      }
+    }
+
+    function step() {
+      if (!running) return;
+
+      const head = {
+        x: snake[0].x + dir.x,
+        y: snake[0].y + dir.y
+      };
+
+      if (
+        head.x < 0 || head.y < 0 ||
+        head.x >= cols || head.y >= rows ||
+        snake.some(s => s.x === head.x && s.y === head.y)
+      ) {
+        gameOver();
+        return;
+      }
+
+      snake.unshift(head);
+
+      if (head.x === food.x && head.y === food.y) {
+        score++;
+        spawnFood();
+      } else {
+        snake.pop();
+      }
+    }
+
+    function gameOver() {
+      running = false;
+      center.innerHTML = `GAME OVER<br>Score: ${score}<br><br>Press START`;
+      center.style.display = 'flex';
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#0f0';
+      for (const s of snake) {
+        ctx.fillRect(
+          s.x * gridSize,
+          s.y * gridSize,
+          gridSize - 1,
+          gridSize - 1
+        );
+      }
+
+      ctx.fillStyle = '#f00';
+      ctx.fillRect(
+        food.x * gridSize,
+        food.y * gridSize,
+        gridSize - 1,
+        gridSize - 1
+      );
+
+      ctx.fillStyle = '#0f0';
+      ctx.fillText(`Score: ${score}`, 5, canvas.height - 5);
+    }
+
+    timer = setInterval(() => {
+      step();
+      draw();
+    }, 120);
+
+    function setDirection(dx, dy) {
+      if (snake.length > 1 && dir.x === -dx && dir.y === -dy) return;
+      dir = { x: dx, y: dy };
+    }
+
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || !msg.type) return;
+
+      switch (msg.type) {
+        case 'init':
+          window.parent.postMessage({ type: 'keyDisplayMode', enabled: true }, '*');
+          center.innerHTML = 'Press START';
+          center.style.display = 'flex';
+          break;
+
+        case 'keypress':
+          if (!running && msg.description === 'START') {
+            reset();
+            return;
+          }
+          if (!running) return;
+
+          switch (msg.description) {
+            case 'PLUS':   setDirection(0, -1); break; // up
+            case 'MINUS':  setDirection(0, 1);  break; // down
+            case 'TEN_SEC': setDirection(-1, 0); break; // left
+            case 'ONE_MIN': setDirection(1, 0);  break; // right
+          }
+          break;
+
+        case 'displayOff':
+          running = false;
+          break;
+
+        case 'displayOn':
+          if (!running) {
+            center.innerHTML = 'Press START';
+            center.style.display = 'flex';
+          }
+          break;
+      }
+    });
+  </script>
+</body>
+</html>
