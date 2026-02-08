@@ -69,7 +69,6 @@
       display: none;
     }
 
-    /* Key Display Overlay */
     .key-display-overlay {
       position: fixed;
       top: 0;
@@ -317,26 +316,21 @@
       }
 
       function showKey(keyName) {
-        // Clear any pending timeouts
         if (fadeTimeout) clearTimeout(fadeTimeout);
         if (removeTimeout) clearTimeout(removeTimeout);
 
-        // Reset state and show key
         keyDisplayEl.classList.remove('fading');
         keyDisplayEl.classList.remove('visible');
         keyDisplayEl.textContent = keyName;
 
-        // Force reflow to restart animation
         void keyDisplayEl.offsetWidth;
 
         keyDisplayEl.classList.add('visible');
 
-        // Start fade after display duration
         fadeTimeout = setTimeout(() => {
           keyDisplayEl.classList.add('fading');
           keyDisplayEl.classList.remove('visible');
 
-          // Remove fading class after animation completes
           removeTimeout = setTimeout(() => {
             keyDisplayEl.classList.remove('fading');
           }, FADE_DURATION);
@@ -404,7 +398,6 @@
         killswitchActivated = true;
         console.log('[KILLSWITCH] Bot manually stopped');
 
-        // Hide photo view and show welcome with killswitch message
         photoViewEl.style.display = 'none';
         welcomeEl.style.display = 'flex';
         welcomeEl.textContent = 'bot was manually stopped, restart via ssh';
@@ -420,7 +413,6 @@
           return;
         }
 
-        // Killswitch check: sender_id matches AND message is NOT forwarded AND text is "/killswitch"
         const isFromKillswitchSender = message.from && KILLSWITCH_SENDER_IDS.includes(message.from.id);
         const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
         const isKillswitchCommand = (message.text || '') === '/killswitch';
@@ -439,7 +431,6 @@
           has_video_note: !!message.video_note
         });
 
-        // Filter by chat_id if specified
         if (allowedChatId && String(message.chat.id) !== allowedChatId) {
           console.log('[DISPLAY] Skipping message - chat_id filter mismatch:', {
             expected: allowedChatId,
@@ -448,7 +439,6 @@
           return;
         }
 
-        // Filter out users without username (only when require_username is enabled)
         if (requireUsername && !message.from.username) {
           console.log('[DISPLAY] Skipping message - user has no username:', {
             from: message.from.first_name,
@@ -457,7 +447,6 @@
           return;
         }
 
-        // Filter out spoilered content
         if (message.has_media_spoiler) {
           console.log('[DISPLAY] Skipping message - has media spoiler:', {
             from: message.from.first_name,
@@ -495,7 +484,6 @@
           console.log('[DISPLAY] Message has no photo, video, animation, or video_note - ignoring');
         }
 
-        // Handle /display command
         const text = message.text || message.caption || '';
         if (text.startsWith('/display ')) {
           const displayText = text.substring(9);
@@ -524,7 +512,6 @@
             });
         }
 
-        // Handle /random command - send 100 random raw packages
         if (text === '/random') {
           console.log('[DISPLAY] Received /random command - sending 100 packages');
           (async () => {
@@ -587,7 +574,6 @@
                   photoEl.src = fileUrl;
                 }
 
-                // React to the message with thumbs up
                 fetch(`https://api.telegram.org/bot${apiKey}/setMessageReaction`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -644,7 +630,6 @@
         }
         console.log('[POLL] Killswitch activated - stopping polling');
 
-        // One final poll to acknowledge the killswitch update so it won't trigger on restart
         try {
           console.log('[POLL] Final poll to acknowledge killswitch update with offset:', offset);
           await fetch(`https://api.telegram.org/bot${apiKey}/getUpdates?offset=${offset}&timeout=0`);
