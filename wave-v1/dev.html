@@ -483,6 +483,17 @@
         welcomeEl.textContent = 'display is off';
       }
 
+      function showWelcome() {
+        videoEl.pause();
+        videoEl.src = '';
+        videoEl.style.display = 'none';
+        photoEl.src = '';
+        photoEl.style.display = 'none';
+        photoViewEl.style.display = 'none';
+        welcomeEl.style.display = 'flex';
+        welcomeEl.textContent = 'send media in ' + CONFIG.CHAT_NAME;
+      }
+
       function extractMediaInfo(message) {
         if (message.photo?.length > 0) {
           return { fileId: message.photo[message.photo.length - 1].file_id, isVideo: false, type: 'photo' };
@@ -493,7 +504,7 @@
         return null;
       }
 
-      return { init, showError, showMedia, showPlaceholder, extractMediaInfo };
+      return { init, showError, showMedia, showPlaceholder, showWelcome, extractMediaInfo };
     })();
 
     // ============================================================
@@ -632,6 +643,7 @@
           console.log('[COMMAND] /on triggered by admin:', message.from.id);
           displayEnabled = true;
           localStorage.setItem(DISPLAY_STATUS_KEY, 'on');
+          MediaRenderer.showWelcome();
           await TelegramAPI.sendReaction(message.chat.id, message.message_id, '👀');
           return;
         }
