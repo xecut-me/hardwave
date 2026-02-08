@@ -12,118 +12,26 @@
     html, body {
       width: 100%;
       height: 100%;
-      font-family: sans-serif;
       background: #000;
-      color: #fff;
       overflow: hidden;
       padding-right: 40px;
       cursor: none;
     }
-    .welcome {
-      display: flex;
-      justify-content: center;
-      align-items: center;
+    iframe {
       width: 100%;
       height: 100%;
-      font-size: 50px;
-      text-align: center;
-    }
-    .photo-view {
-      display: none;
-      flex-direction: column;
-      width: 100%;
-      height: 100%;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 20px;
-      flex-shrink: 0;
-    }
-    .sender {
-      font-size: 50px;
-      font-weight: bold;
-    }
-    .bot-name {
-      font-size: 50px;
-    }
-    .image-container {
-      flex: 1;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      overflow: hidden;
-    }
-    .image-container img,
-    .image-container video {
-      width: 100%;
-      height: 100%;
-      object-fit: fill;
-    }
-    .image-container.keep-aspect img,
-    .image-container.keep-aspect video {
-      object-fit: contain;
-    }
-    #video {
-      display: none;
-    }
-
-    .key-display-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      pointer-events: none;
-      z-index: 9999;
-    }
-    .key-display-text {
-      font-size: 40vw;
-      font-weight: bold;
-      color: red;
-      -webkit-text-stroke: 8px blue;
-      text-stroke: 8px blue;
-      paint-order: stroke fill;
-      opacity: 0;
-      transform: scale(1);
-      transition: none;
-    }
-    .key-display-text.visible {
-      opacity: 1;
-      transform: scale(1);
-    }
-    .key-display-text.fading {
-      opacity: 0;
-      transform: scale(1.5);
-      transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+      border: none;
     }
   </style>
 </head>
 <body>
-  <div class="key-display-overlay"><div class="key-display-text" id="keyDisplay"></div></div>
-  <div class="welcome" id="welcome"></div>
-
-  <div class="photo-view" id="photoView">
-    <div class="header">
-      <div class="sender" id="sender"></div>
-      <div class="bot-name" id="botName"></div>
-    </div>
-    <div class="image-container">
-      <img id="photo" src="" alt="Photo">
-      <video id="video" src="" autoplay loop muted playsinline></video>
-    </div>
-  </div>
+  <iframe id="displayFrame" sandbox="allow-scripts" src="plugin-media-display.html"></iframe>
 
   <script>
     // ============================================================
     // CONFIG - All configurable constants in one place
     // ============================================================
     const CONFIG = {
-      // App
       CHAT_NAME: '@xexecut_chat',
       TIMEZONE: 'Europe/Belgrade',
 
@@ -142,16 +50,11 @@
       CMD_RAW: 0x14,
 
       // Timing
-      TIME_SYNC_INTERVAL_MS: 60 * 60 * 1000,  // 1 hour
+      TIME_SYNC_INTERVAL_MS: 60 * 60 * 1000,
       POLL_TIMEOUT_SECONDS: 30,
-      KEY_DISPLAY_DURATION_MS: 1000,
-      KEY_FADE_DURATION_MS: 800,
-
-      // Random command
-      RANDOM_PACKAGE_COUNT: 100,
-      RANDOM_DIGIT_MAX: 128,
-      RANDOM_SYMBOLS_MAX: 4096,
     };
+
+    const displayFrame = document.getElementById('displayFrame');
 
     // ============================================================
     // KeyboardCommands - WebHID hardware interface
@@ -287,7 +190,6 @@
         await device.sendReport(CONFIG.HID_REPORT_ID, payload);
       }
 
-      // Register disconnect handler
       if ("hid" in navigator) {
         navigator.hid.addEventListener('disconnect', handleDisconnect);
       }
@@ -312,66 +214,44 @@
         }
       }, CONFIG.TIME_SYNC_INTERVAL_MS);
 
-      return {
-        getCurrentTime,
-        sendCommand,
-        ensureDevice
-      };
+      return { sendCommand, ensureDevice };
     })();
-    
+
     // ============================================================
-    // Keyboard - Key display overlay handler
+    // Handle WebHID commands from child iframe
     // ============================================================
-    const Keyboard = (function KeyboardHandler() {
-      const keyDisplayEl = document.getElementById('keyDisplay');
-      let fadeTimeout = null;
-      let removeTimeout = null;
+    window.addEventListener('message', async (event) => {
+      if (event.source !== displayFrame.contentWindow) return;
 
-      const specialKeys = {
-        'Enter': 'Enter',
-        'Escape': 'Esc'
-      };
+      const msg = event.data;
+      if (!msg || msg.type !== 'hid') return;
 
-      const keyHandlers = {};
+      console.log('[Parent] Received HID command from child:', msg);
 
-      function getKeyName(e) {
-        if (specialKeys[e.key]) return specialKeys[e.key];
-        if (e.key.startsWith('F') && e.key.length <= 3) return e.key;
-        if (e.key.length === 1) return e.key.toUpperCase();
-        return e.key;
+      try {
+        if (msg.command === 'runningText') {
+          await KeyboardCommands.sendCommand('runningText', msg.text);
+          sendToChild({ type: 'hidResult', success: true, command: msg.command });
+        } else if (msg.command === 'raw') {
+          await KeyboardCommands.sendCommand('raw', { digits: msg.digits, symbols: msg.symbols });
+          sendToChild({ type: 'hidResult', success: true, command: msg.command });
+        }
+      } catch (err) {
+        console.error('[Parent] HID command failed:', err);
+        sendToChild({ type: 'hidResult', success: false, command: msg.command, error: err.message });
       }
+    });
 
-      function showKey(keyName) {
-        if (fadeTimeout) clearTimeout(fadeTimeout);
-        if (removeTimeout) clearTimeout(removeTimeout);
+    // ============================================================
+    // Forward keypresses to child iframe
+    // ============================================================
+    document.addEventListener('keydown', (e) => {
+      sendToChild({ type: 'keypress', key: e.key });
+    });
 
-        keyDisplayEl.classList.remove('fading');
-        keyDisplayEl.classList.remove('visible');
-        keyDisplayEl.textContent = keyName;
-
-        void keyDisplayEl.offsetWidth;
-
-        keyDisplayEl.classList.add('visible');
-
-        fadeTimeout = setTimeout(() => {
-          keyDisplayEl.classList.add('fading');
-          keyDisplayEl.classList.remove('visible');
-
-          removeTimeout = setTimeout(() => {
-            keyDisplayEl.classList.remove('fading');
-          }, CONFIG.KEY_FADE_DURATION_MS);
-        }, CONFIG.KEY_DISPLAY_DURATION_MS);
-      }
-
-      document.addEventListener('keydown', (e) => {
-        showKey(getKeyName(e));
-        if (keyHandlers[e.key]) keyHandlers[e.key](e);
-      });
-
-      return {
-        onKey: (key, handler) => { keyHandlers[key] = handler; }
-      };
-    })();
+    function sendToChild(msg) {
+      displayFrame.contentWindow.postMessage(msg, '*');
+    }
 
     // ============================================================
     // TelegramAPI - Telegram Bot API interface
@@ -424,153 +304,10 @@
     })();
 
     // ============================================================
-    // MediaRenderer - UI display handling
-    // ============================================================
-    const MediaRenderer = (function() {
-      const welcomeEl = document.getElementById('welcome');
-      const botNameEl = document.getElementById('botName');
-      const photoViewEl = document.getElementById('photoView');
-      const senderEl = document.getElementById('sender');
-      const photoEl = document.getElementById('photo');
-      const videoEl = document.getElementById('video');
-      const imageContainerEl = document.querySelector('.image-container');
-
-      function init(keepAspectRatio) {
-        const welcomeText = 'send media in ' + CONFIG.CHAT_NAME;
-        welcomeEl.textContent = welcomeText;
-        botNameEl.textContent = welcomeText;
-
-        if (keepAspectRatio) {
-          imageContainerEl.classList.add('keep-aspect');
-        }
-
-        Keyboard.onKey('Enter', () => {
-          imageContainerEl.classList.toggle('keep-aspect');
-        });
-      }
-
-      function showError(message) {
-        welcomeEl.textContent = message;
-      }
-
-      function showMedia(url, isVideo, sender) {
-        welcomeEl.style.display = 'none';
-        photoViewEl.style.display = 'flex';
-        senderEl.textContent = sender;
-
-        if (isVideo) {
-          photoEl.style.display = 'none';
-          photoEl.src = '';
-          videoEl.style.display = 'block';
-          videoEl.src = url;
-        } else {
-          videoEl.pause();
-          videoEl.src = '';
-          videoEl.style.display = 'none';
-          photoEl.style.display = 'block';
-          photoEl.src = url;
-        }
-      }
-
-      function showPlaceholder() {
-        videoEl.pause();
-        videoEl.src = '';
-        videoEl.style.display = 'none';
-        photoEl.src = '';
-        photoEl.style.display = 'none';
-        photoViewEl.style.display = 'none';
-        welcomeEl.style.display = 'flex';
-        welcomeEl.textContent = 'display is off';
-      }
-
-      function showWelcome() {
-        videoEl.pause();
-        videoEl.src = '';
-        videoEl.style.display = 'none';
-        photoEl.src = '';
-        photoEl.style.display = 'none';
-        photoViewEl.style.display = 'none';
-        welcomeEl.style.display = 'flex';
-        welcomeEl.textContent = 'send media in ' + CONFIG.CHAT_NAME;
-      }
-
-      function extractMediaInfo(message) {
-        if (message.photo?.length > 0) {
-          return { fileId: message.photo[message.photo.length - 1].file_id, isVideo: false, type: 'photo' };
-        }
-        if (message.animation) return { fileId: message.animation.file_id, isVideo: true, type: 'animation' };
-        if (message.video) return { fileId: message.video.file_id, isVideo: true, type: 'video' };
-        if (message.video_note) return { fileId: message.video_note.file_id, isVideo: true, type: 'video_note' };
-        return null;
-      }
-
-      return { init, showError, showMedia, showPlaceholder, showWelcome, extractMediaInfo };
-    })();
-
-    // ============================================================
-    // CommandProcessor - Handle bot commands
-    // ============================================================
-    const CommandProcessor = (function() {
-      async function handleDisplay(text, chatId, messageId) {
-        const displayText = text.substring(9);
-        console.log('[CommandProcessor] /display command:', displayText);
-
-        try {
-          await KeyboardCommands.sendCommand('runningText', displayText);
-          console.log('[CommandProcessor] Running text sent to HID');
-          await TelegramAPI.sendReaction(chatId, messageId, '👀');
-        } catch (err) {
-          console.error('[CommandProcessor] Failed to send running text:', err);
-          await TelegramAPI.sendReaction(chatId, messageId, '👎');
-        }
-      }
-
-      async function handleRandom(chatId, messageId) {
-        console.log('[CommandProcessor] /random command - sending packages');
-        try {
-          for (let i = 0; i < CONFIG.RANDOM_PACKAGE_COUNT; i++) {
-            const randomDigits = [
-              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX),
-              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX),
-              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX),
-              Math.floor(Math.random() * CONFIG.RANDOM_DIGIT_MAX)
-            ];
-            const randomSymbols = Math.floor(Math.random() * CONFIG.RANDOM_SYMBOLS_MAX);
-            await KeyboardCommands.sendCommand('raw', { digits: randomDigits, symbols: randomSymbols });
-            console.log(`[CommandProcessor] Sent random package ${i + 1}/${CONFIG.RANDOM_PACKAGE_COUNT}`);
-          }
-          console.log('[CommandProcessor] All random packages sent');
-          await TelegramAPI.sendReaction(chatId, messageId, '👀');
-        } catch (err) {
-          console.error('[CommandProcessor] Failed to send random raw:', err);
-        }
-      }
-
-      async function handleMedia(media, sender, chatId, messageId) {
-        try {
-          const fileUrl = await TelegramAPI.getFileUrl(media.fileId);
-          MediaRenderer.showMedia(fileUrl, media.isVideo, sender);
-          await TelegramAPI.sendReaction(chatId, messageId, '👀');
-        } catch (err) {
-          console.error('[CommandProcessor] Failed to fetch/display media:', err);
-        }
-      }
-
-      function isAdminCommand(message, adminIds, commandText) {
-        const isFromAdmin = message.from && adminIds.includes(message.from.id);
-        const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
-        const isCommand = (message.text || '') === commandText;
-        return isFromAdmin && !isForwarded && isCommand;
-      }
-
-      return { handleDisplay, handleRandom, handleMedia, isAdminCommand };
-    })();
-
-    // ============================================================
-    // Main Application - Orchestrates all modules
+    // Main Application
     // ============================================================
     (async function Main() {
-      console.log('[INIT] Starting Telegram Updates viewer');
+      console.log('[INIT] Starting Telegram Updates viewer (parent frame)');
 
       // Parse URL parameters
       const params = new URLSearchParams(window.location.search);
@@ -582,23 +319,25 @@
 
       console.log('[CONFIG] URL parameters:', { hasApiKey: !!queryKey, keepAspectRatio, requireUsername, allowedChatId, adminIdsParam });
 
-      // Initialize renderer first for error display
-      MediaRenderer.init(keepAspectRatio);
+      // Send initial config to child (without sensitive data)
+      displayFrame.onload = () => {
+        sendToChild({ type: 'init', chatName: CONFIG.CHAT_NAME, keepAspectRatio });
+      };
 
       // Validate required params
       if (!queryKey) {
         console.error('[CONFIG] No API key found in URL - aborting');
-        MediaRenderer.showError('api_key not found in URL');
+        displayFrame.onload = () => sendToChild({ type: 'error', message: 'api_key not found in URL' });
         return;
       }
       if (!allowedChatId) {
         console.error('[CONFIG] No chat_id found in URL - aborting');
-        MediaRenderer.showError('chat_id not found in URL');
+        displayFrame.onload = () => sendToChild({ type: 'error', message: 'chat_id not found in URL' });
         return;
       }
       if (!adminIdsParam) {
         console.error('[CONFIG] No admin_ids found in URL - aborting');
-        MediaRenderer.showError('admin_ids not found in URL');
+        displayFrame.onload = () => sendToChild({ type: 'error', message: 'admin_ids not found in URL' });
         return;
       }
 
@@ -608,18 +347,37 @@
 
       let offset = 0;
 
-      // Display status from localStorage (default: on for admin only)
+      // Display status from localStorage
       const DISPLAY_STATUS_KEY = 'hardwave_display_enabled';
       let displayEnabled = localStorage.getItem(DISPLAY_STATUS_KEY) !== 'off';
       console.log('[CONFIG] Display enabled:', displayEnabled);
 
-      if (!displayEnabled) {
-        MediaRenderer.showPlaceholder();
+      displayFrame.onload = () => {
+        sendToChild({ type: 'init', chatName: CONFIG.CHAT_NAME, keepAspectRatio });
+        if (!displayEnabled) {
+          sendToChild({ type: 'displayOff' });
+        }
+      };
+
+      function isAdminCommand(message, commandText) {
+        const isFromAdmin = message.from && adminIds.includes(message.from.id);
+        const isForwarded = message.forward_from || message.forward_from_chat || message.forward_date || message.forward_origin;
+        const isCommand = (message.text || '') === commandText;
+        return isFromAdmin && !isForwarded && isCommand;
+      }
+
+      function extractMediaInfo(message) {
+        if (message.photo?.length > 0) {
+          return { fileId: message.photo[message.photo.length - 1].file_id, isVideo: false };
+        }
+        if (message.animation) return { fileId: message.animation.file_id, isVideo: true };
+        if (message.video) return { fileId: message.video.file_id, isVideo: true };
+        if (message.video_note) return { fileId: message.video_note.file_id, isVideo: true };
+        return null;
       }
 
       async function processUpdate(update) {
         console.log('[POLL] Processing update:', { update_id: update.update_id });
-        console.log('[POLL] Full JSON:', JSON.stringify(update, null, 2));
 
         const message = update.message;
         if (!message) {
@@ -629,26 +387,26 @@
 
         const isFromAdmin = message.from && adminIds.includes(message.from.id);
 
-        // Check admin commands first
-        if (CommandProcessor.isAdminCommand(message, adminIds, '/off')) {
+        // Handle admin commands in parent
+        if (isAdminCommand(message, '/off')) {
           console.log('[COMMAND] /off triggered by admin:', message.from.id);
           displayEnabled = false;
           localStorage.setItem(DISPLAY_STATUS_KEY, 'off');
-          MediaRenderer.showPlaceholder();
+          sendToChild({ type: 'displayOff' });
           await TelegramAPI.sendReaction(message.chat.id, message.message_id, '👀');
           return;
         }
 
-        if (CommandProcessor.isAdminCommand(message, adminIds, '/on')) {
+        if (isAdminCommand(message, '/on')) {
           console.log('[COMMAND] /on triggered by admin:', message.from.id);
           displayEnabled = true;
           localStorage.setItem(DISPLAY_STATUS_KEY, 'on');
-          MediaRenderer.showWelcome();
+          sendToChild({ type: 'displayOn' });
           await TelegramAPI.sendReaction(message.chat.id, message.message_id, '👀');
           return;
         }
 
-        if (CommandProcessor.isAdminCommand(message, adminIds, '/reload')) {
+        if (isAdminCommand(message, '/reload')) {
           console.log('[COMMAND] /reload triggered by admin:', message.from.id);
           await TelegramAPI.sendReaction(message.chat.id, message.message_id, '👀');
           await TelegramAPI.acknowledgeUpdate(update.update_id + 1);
@@ -659,51 +417,58 @@
 
         // When display is off, ignore non-admin messages
         if (!displayEnabled && !isFromAdmin) {
-          console.log('[POLL] Skipping - display is off and message is from non-admin:', message.from.id);
+          console.log('[POLL] Skipping - display is off and message is from non-admin');
           return;
         }
-
-        console.log('[POLL] Message received:', {
-          message_id: message.message_id,
-          chat_id: message.chat.id,
-          from: message.from.first_name,
-          has_photo: !!(message.photo?.length > 0),
-          has_video: !!message.video,
-          has_video_note: !!message.video_note
-        });
 
         // Filter checks
         if (allowedChatId && String(message.chat.id) !== allowedChatId) {
-          console.log('[POLL] Skipping - chat_id mismatch:', { expected: allowedChatId, actual: message.chat.id });
+          console.log('[POLL] Skipping - chat_id mismatch');
           return;
         }
         if (requireUsername && !message.from.username) {
-          console.log('[POLL] Skipping - user has no username:', { from: message.from.first_name, user_id: message.from.id });
+          console.log('[POLL] Skipping - user has no username');
           return;
         }
         if (message.has_media_spoiler) {
-          console.log('[POLL] Skipping - has media spoiler:', { from: message.from.first_name, message_id: message.message_id });
+          console.log('[POLL] Skipping - has media spoiler');
           return;
         }
 
         const sender = message.from.first_name + (message.from.username ? ' @' + message.from.username : '');
         const text = message.text || message.caption || '';
-        const media = MediaRenderer.extractMediaInfo(message);
+        const media = extractMediaInfo(message);
 
-        // Process commands (can run in parallel with media)
-        if (text.startsWith('/display ')) {
-          CommandProcessor.handleDisplay(text, message.chat.id, message.message_id);
-        } else if (text === '/random') {
-          CommandProcessor.handleRandom(message.chat.id, message.message_id);
+        // Send command text to child if starts with /
+        if (text.startsWith('/')) {
+          sendToChild({
+            type: 'command',
+            text: text,
+            sender: sender,
+            isAdmin: isFromAdmin,
+            chatId: message.chat.id,
+            messageId: message.message_id
+          });
         }
 
-        // Process media (only when display is enabled)
-        if (media) {
-          console.log('[POLL] Detected media:', media);
-          if (displayEnabled) {
-            await CommandProcessor.handleMedia(media, sender, message.chat.id, message.message_id);
-          } else {
-            console.log('[POLL] Display is off, ignoring media');
+        // Process and send media to child
+        if (media && displayEnabled) {
+          try {
+            const fileUrl = await TelegramAPI.getFileUrl(media.fileId);
+            const payload = {
+              type: 'media',
+              sender: sender,
+              isAdmin: isFromAdmin
+            };
+            if (media.isVideo) {
+              payload.videoUrl = fileUrl;
+            } else {
+              payload.photoUrl = fileUrl;
+            }
+            sendToChild(payload);
+            await TelegramAPI.sendReaction(message.chat.id, message.message_id, '👀');
+          } catch (err) {
+            console.error('[Parent] Failed to fetch/display media:', err);
           }
         }
       }
@@ -719,7 +484,6 @@
               for (const update of data.result) {
                 await processUpdate(update);
                 offset = update.update_id + 1;
-                console.log('[POLL] Updated offset to:', offset);
               }
             } else if (data.ok) {
               console.log('[POLL] No new updates (timeout reached)');
@@ -731,6 +495,15 @@
           }
         }
       }
+
+      // Listen for reaction requests from child
+      window.addEventListener('message', async (event) => {
+        if (event.source !== displayFrame.contentWindow) return;
+        const msg = event.data;
+        if (msg?.type === 'reaction') {
+          await TelegramAPI.sendReaction(msg.chatId, msg.messageId, msg.emoji);
+        }
+      });
 
       console.log('[INIT] Starting polling loop');
       await pollUpdates();
