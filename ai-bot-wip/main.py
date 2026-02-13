@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -16,9 +15,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Environment variables
 TELEGRAM_API_KEY = os.environ["TELEGRAM_API_KEY"]
-ALLOWED_CHAT_IDS = {int(x) for x in os.environ["ALLOWED_CHAT_IDS"].split(",")}
-ADMIN_ID = int(os.environ["ADMIN_ID"])
+TELEGRAM_CHAT_ID = int(os.environ["TELEGRAM_CHAT_ID"])
+TELEGRAM_ADMIN_IDS = {int(x) for x in os.environ["TELEGRAM_ADMIN_IDS"].split(",")}
 LLM_API_URL = os.environ["LLM_API_URL"]
 LLM_API_KEY = os.environ["LLM_API_KEY"]
 LLM_API_MODEL = os.environ.get("LLM_API_MODEL", "claude-3-5-sonnet-20241022")
@@ -27,35 +27,33 @@ URL_BASE = "https://xecut-ai-ugc.tgr.rs/"
 RESULTS_DIR = Path(__file__).parent / "results"
 BASE_PROMPT_PATH = Path(__file__).parent / "base_prompt.md"
 
-# State management
-ai_enabled_chats = set()  # Chats where AI is enabled
+# Simple state
+ai_enabled = False
 task_queue = asyncio.Queue()
-processing = False
+is_processing = False
 
 
-def is_allowed(update: Update) -> bool:
+def is_correct_chat(update: Update) -> bool:
+    """Check if message is from the correct chat."""
     msg = update.message
     if msg is None:
         return False
-    if msg.chat_id not in ALLOWED_CHAT_IDS:
-        logger.debug("Rejected: chat_id %s not in allowed list", msg.chat_id)
+    if msg.chat_id != TELEGRAM_CHAT_ID:
+        logger.debug("Rejected: chat_id %s != %s", msg.chat_id, TELEGRAM_CHAT_ID)
         return False
     return True
 
 
 def is_admin(update: Update) -> bool:
+    """Check if user is an admin."""
     msg = update.message
     if msg is None or msg.from_user is None:
         return False
-    return msg.from_user.id == ADMIN_ID
-
-
-def is_ai_enabled(chat_id: int) -> bool:
-    return chat_id in ai_enabled_chats
+    return msg.from_user.id in TELEGRAM_ADMIN_IDS
 
 
 def _call_api(prompt: str) -> str:
-    """Synchronous API call to be run in thread pool."""
+    """Call LLM API synchronously."""
     response = requests.post(
         f"{LLM_API_URL}/messages",
         headers={
@@ -76,19 +74,20 @@ def _call_api(prompt: str) -> str:
 
 
 async def generate_html(prompt: str) -> tuple[str, str]:
-    """Generate HTML and return (file_path, html_content)."""
+    """Generate HTML from prompt and save to file."""
     base_prompt = BASE_PROMPT_PATH.read_text()
     full_prompt = f"{base_prompt}\n\n# Task\n\n{prompt}"
 
-    # Run synchronous requests call in thread pool
+    # Run API call in thread pool
     loop = asyncio.get_event_loop()
     with ThreadPoolExecutor() as executor:
         content = await loop.run_in_executor(executor, _call_api, full_prompt)
 
+    # Extract HTML from markdown code block
     match = re.search(r"```html\s*(.*?)\s*```", content, re.DOTALL)
     html = match.group(1) if match else content
 
-    # Use timestamp for filename
+    # Save to file
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     RESULTS_DIR.mkdir(exist_ok=True)
     result_path = RESULTS_DIR / f"{timestamp}.html"
@@ -99,10 +98,10 @@ async def generate_html(prompt: str) -> tuple[str, str]:
 
 async def process_queue():
     """Process tasks from queue one at a time."""
-    global processing
+    global is_processing
     while True:
         update, prompt = await task_queue.get()
-        processing = True
+        is_processing = True
         msg = update.message
 
         try:
@@ -110,29 +109,27 @@ async def process_queue():
             filename = Path(result_path).name
             url = f"{URL_BASE}{filename}"
 
-            # Send URL and HTML document
             await msg.reply_text(f"ok\n{url}")
             await msg.reply_document(document=open(result_path, "rb"), filename=filename)
 
             logger.info("Task completed: %s", filename)
         except Exception as e:
             logger.error("Task failed: %s", e, exc_info=True)
-            print(f"Error generating HTML: {e}", file=sys.stderr)
             await msg.reply_text("error generating")
         finally:
-            processing = False
+            is_processing = False
             task_queue.task_done()
 
 
 async def handle_make(update: Update, _) -> None:
-    if not is_allowed(update):
+    """Handle /make command to generate HTML."""
+    if not is_correct_chat(update):
         return
 
     msg = update.message
-    chat_id = msg.chat_id
 
-    # Check if AI is enabled for this chat (unless admin)
-    if not is_admin(update) and not is_ai_enabled(chat_id):
+    # Only admins can use /make when AI is disabled
+    if not ai_enabled and not is_admin(update):
         return
 
     text = msg.text or ""
@@ -142,58 +139,58 @@ async def handle_make(update: Update, _) -> None:
         await msg.reply_text("Usage: /make <prompt>")
         return
 
-    # Add to queue
     await task_queue.put((update, prompt))
-    logger.info("Task queued for chat %s: %s", chat_id, prompt)
+    logger.info("Task queued: %s", prompt)
 
 
 async def handle_ai_on(update: Update, _) -> None:
-    if not is_allowed(update):
+    """Enable AI for all users in the chat."""
+    global ai_enabled
+
+    if not is_correct_chat(update):
         return
 
     msg = update.message
 
-    # Admin only, not forwarded, in the exact chat
     if not is_admin(update):
         return
     if msg.forward_date is not None:
         return
 
-    chat_id = msg.chat_id
-    ai_enabled_chats.add(chat_id)
+    ai_enabled = True
     await msg.reply_text("AI enabled")
-    logger.info("AI enabled for chat %s", chat_id)
+    logger.info("AI enabled")
 
 
 async def handle_ai_off(update: Update, _) -> None:
-    if not is_allowed(update):
+    """Disable AI for all users in the chat."""
+    global ai_enabled
+
+    if not is_correct_chat(update):
         return
 
     msg = update.message
 
-    # Admin only, not forwarded, in the exact chat
     if not is_admin(update):
         return
     if msg.forward_date is not None:
         return
 
-    chat_id = msg.chat_id
-    ai_enabled_chats.discard(chat_id)
+    ai_enabled = False
     await msg.reply_text("AI disabled")
-    logger.info("AI disabled for chat %s", chat_id)
+    logger.info("AI disabled")
 
 
 async def handle_ai_clean(update: Update, _) -> None:
-    if not is_allowed(update):
+    """Delete all generated HTML files."""
+    if not is_correct_chat(update):
         return
 
     msg = update.message
 
-    # Admin only
     if not is_admin(update):
         return
 
-    # Delete all files in results directory
     count = 0
     if RESULTS_DIR.exists():
         for file in RESULTS_DIR.glob("*.html"):
@@ -201,24 +198,24 @@ async def handle_ai_clean(update: Update, _) -> None:
             count += 1
 
     await msg.reply_text(f"Cleaned {count} files")
-    logger.info("Cleaned %d files from results", count)
+    logger.info("Cleaned %d files", count)
 
 
 async def handle_start(update: Update, _) -> None:
-    if not is_allowed(update):
+    """Handle /start command."""
+    if not is_correct_chat(update):
         return
     await update.message.reply_text("Use /make <prompt> to generate HTML plugins")
 
 
 async def post_init(app: Application) -> None:
-    """Start background tasks after bot initialization."""
+    """Start background queue processor."""
     asyncio.create_task(process_queue())
 
 
 def main() -> None:
     app = Application.builder().token(TELEGRAM_API_KEY).post_init(post_init).build()
 
-    # Add command handlers
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("make", handle_make))
     app.add_handler(CommandHandler("ai-on", handle_ai_on))
