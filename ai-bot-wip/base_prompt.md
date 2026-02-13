@@ -2,16 +2,16 @@
 
 Write a HTML page that will be loaded into iframe on a device with a screen, no mouse and some special layout integrated keyboard.
 
-Parent frame has a connection to a telegram chat and to special 7-segment clock, it will manage all stuff, you just need to communicate with it via postMessage. Your code will run in a sandboxed iframe with `sandbox="allow-scripts"`.
+Parent frame has a connection to a special 7-segment clock, it will manage all stuff, you just need to communicate with it via postMessage. Your code will run in a sandboxed iframe with `sandbox="allow-scripts"`.
 
 Please keep code small enough but not smaller that it should be. Prioritize fast answer if it not hurts usability and code correctness. Do not write comments. When doing application add a simple educational info on which buttons to press on a HID keyboard.
+
+Your iframe is fixed 1286 x 768.
 
 # Plugin Architecture
 
 Plugins are loaded into an iframe by the parent frame. The parent handles:
-- Telegram bot long-polling and message processing
 - WebHID communication with 7-segment display hardware
-- Key overlay display (big bouncing text on keypress)
 
 # Receiving Messages (Parent → Plugin)
 
@@ -21,35 +21,12 @@ window.addEventListener('message', (event) => {
   if (!msg || !msg.type) return;
 
   switch (msg.type) {
-    case 'init':
-      // msg.chatName - string, chat identifier to display
-      // msg.keepAspectRatio - boolean, initial aspect ratio preference
-      break;
     case 'error':
       // msg.message - string, error to display
-      break;
-    case 'displayOn':
-      // Display has been enabled by admin
-      break;
-    case 'displayOff':
-      // Display has been disabled by admin
       break;
     case 'keypress':
       // msg.key - string, raw key value (e.g., 'Enter', 'c')
       // msg.description - string|null, mapped name (e.g., 'START', 'COOK')
-      break;
-    case 'media':
-      // msg.photoUrl - string|undefined, direct URL to photo
-      // msg.videoUrl - string|undefined, direct URL to video
-      // msg.sender - string, formatted sender name
-      // msg.isAdmin - boolean, whether sender is admin
-      break;
-    case 'command':
-      // msg.text - string, full command text (starts with '/')
-      // msg.sender - string, formatted sender name
-      // msg.isAdmin - boolean, whether sender is admin
-      // msg.chatId - number, for sending reactions
-      // msg.messageId - number, for sending reactions
       break;
     case 'hidResult':
       // msg.command - string, which command completed
@@ -62,38 +39,21 @@ window.addEventListener('message', (event) => {
 
 # Sending Messages (Plugin → Parent)
 
-**Key Display Control**
-```javascript
-// Enable/disable the key overlay in parent, it will display all pressed keys in a big, overlapping bounce
-window.parent.postMessage(({ type: 'keyDisplayMode', enabled: true }, '*');
-```
-
 **WebHID Commands**
 ```javascript
 // Send running text to hardware display
-window.parent.postMessage(({
+window.parent.postMessage({
   type: 'hid',
   command: 'runningText',
   text: 'Hello World'
 }, '*');
 
 // Send raw display data
-window.parent.postMessage(({
+window.parent.postMessage({
   type: 'hid',
   command: 'raw',
   digits: [0, 0, 0, 0],  // 4 values, 0-127 each
   symbols: 0              // 0-4095
-}, '*');
-```
-
-**Telegram Reactions**
-```javascript
-// Send emoji reaction to a message
-window.parent.postMessage(({
-  type: 'reaction',
-  chatId: 123456789,
-  messageId: 42,
-  emoji: '👀'
 }, '*');
 ```
 
@@ -157,8 +117,6 @@ case 'keypress':
 <body>
   <div id="app"></div>
   <script>
-    let displayEnabled = true;
-
     function sendToParent(msg) {
       window.parent.postMessage(msg, '*');
     }
@@ -168,62 +126,15 @@ case 'keypress':
       if (!msg || !msg.type) return;
 
       switch (msg.type) {
-        case 'init':
-          // msg.chatName, msg.keepAspectRatio available
-          break;
-        case 'displayOn':
-          displayEnabled = true;
-          break;
-        case 'displayOff':
-          displayEnabled = false;
-          break;
         case 'keypress':
           // Use msg.description for mapped keys (COOK, START, etc)
           // Use msg.key for raw key value
-          break;
-        case 'media':
-          // msg.photoUrl or msg.videoUrl, msg.sender, msg.isAdmin
-          break;
-        case 'command':
-          // msg.text (full command), msg.sender, msg.isAdmin
-          // msg.chatId, msg.messageId (for reactions)
           break;
       }
     });
   </script>
 </body>
 </html>
-```
-
-# Key Display Mode
-
-Key display shows pressed keys as large overlay text in parent frame. Games should disable it for cleaner UX:
-
-```javascript
-// Disable key overlay (recommended for games)
-sendToParent({ type: 'keyDisplayMode', enabled: false });
-
-// Re-enable when leaving game mode
-sendToParent({ type: 'keyDisplayMode', enabled: true });
-```
-
-Registered plugins set default via `keyDisplay` in PLUGINS config. Media plugin defaults to `true`, games should default to `false`.
-
-# Command Handling Pattern
-
-Handle telegram `/commands` sent to your plugin:
-
-```javascript
-case 'command':
-  if (msg.text === '/start') {
-    startGame();
-    sendToParent({ type: 'reaction', chatId: msg.chatId, messageId: msg.messageId, emoji: '🎮' });
-  }
-  if (msg.text.startsWith('/score ')) {
-    const value = msg.text.substring(7);
-    // process value...
-  }
-  break;
 ```
 
 # 7-Segment Display Details
@@ -241,3 +152,7 @@ sendToParent({
   symbols: 0b000000000001  // 12-bit bitmask
 });
 ```
+
+# Task
+
+Make a snake game

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Snake</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:100%;height:100%;background:#000;color:#fff;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    #wrap{height:100%;display:flex;flex-direction:column}
+    #top{padding:14px 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #1a1a1a}
+    #title{font-weight:700;font-size:20px;letter-spacing:.3px}
+    #hud{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;justify-content:flex-end}
+    .pill{border:1px solid #2a2a2a;border-radius:999px;padding:6px 10px;font-size:13px;color:#ddd}
+    .pill b{color:#fff}
+    #main{flex:1;display:flex;gap:16px;padding:16px;min-height:0}
+    #left{flex:1;display:flex;align-items:center;justify-content:center;min-width:0}
+    canvas{width:min(82vh, 72vw);height:min(82vh, 72vw);max-width:100%;max-height:100%;image-rendering:pixelated;border:1px solid #222;background:#070707;border-radius:12px}
+    #right{width:min(360px, 34vw);min-width:240px;display:flex;flex-direction:column;gap:12px}
+    #card{border:1px solid #222;border-radius:14px;padding:14px;background:#050505}
+    #card h2{font-size:14px;color:#cfcfcf;margin-bottom:10px;font-weight:650}
+    #keys{display:grid;grid-template-columns:1fr;gap:8px;font-size:14px;line-height:1.25}
+    .row{display:flex;justify-content:space-between;gap:10px;border:1px solid #1c1c1c;border-radius:12px;padding:10px 12px;background:#070707}
+    .k{font-weight:700;color:#fff}
+    .d{color:#cfcfcf}
+    #msg{border:1px solid #222;border-radius:14px;padding:12px;background:#050505;color:#ddd;min-height:48px}
+    #msg b{color:#fff}
+    #small{color:#9a9a9a;font-size:12px;margin-top:6px}
+    @media (max-width:800px){
+      #main{flex-direction:column}
+      #right{width:100%;min-width:0}
+      canvas{width:min(66vh, 94vw);height:min(66vh, 94vw)}
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="top">
+      <div>
+        <div id="title">SNAKE</div>
+        <div id="small">Use the microwave-style HID keys. No mouse needed.</div>
+      </div>
+      <div id="hud">
+        <div class="pill">Score: <b id="score">0</b></div>
+        <div class="pill">Best: <b id="best">0</b></div>
+        <div class="pill">Speed: <b id="spd">6</b></div>
+      </div>
+    </div>
+
+    <div id="main">
+      <div id="left"><canvas id="c" width="512" height="512"></canvas></div>
+      <div id="right">
+        <div id="card">
+          <h2>How to play (keyboard)</h2>
+          <div id="keys">
+            <div class="row"><div class="k">COOK / DEFROST / REHEAT</div><div class="d">Move: Up / Left / Right</div></div>
+            <div class="row"><div class="k">ELEMENTS</div><div class="d">Move: Down</div></div>
+            <div class="row"><div class="k">START</div><div class="d">Start / Resume</div></div>
+            <div class="row"><div class="k">STOP</div><div class="d">Pause (or restart after game over)</div></div>
+            <div class="row"><div class="k">PLUS / MINUS</div><div class="d">Speed up / down</div></div>
+          </div>
+        </div>
+        <div id="msg">Press <b>START</b> to begin.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const c = $("c"), g = c.getContext("2d");
+    const scoreEl = $("score"), bestEl = $("best"), spdEl = $("spd"), msgEl = $("msg");
+
+    function sendToParent(m){ window.parent.postMessage(m,"*"); }
+    function sayHW(t){
+      sendToParent({type:"hid",command:"runningText",text:String(t).slice(0,46)});
+    }
+    function hwTime(){
+      const t = String(Math.max(0, Math.min(9999, timeLeft|0))).padStart(4,"0");
+      sendToParent({type:"hid",command:"runningText",text:`${t} ${paused? "PAUSE": gameOver? "OVER":"TIME"}`.slice(0,46)});
+    }
+
+    const N = 24;
+    const CELL = c.width / N;
+
+    let best = 0;
+    try { best = +localStorage.getItem("snake_best") || 0; } catch(e){}
+    bestEl.textContent = best;
+
+    let speed = 6;
+    let tickMs = Math.round(1000 / speed);
+
+    let snake, dir, nextDir, food, score, paused, gameOver, acc, last;
+    let timeLeft = 99;
+
+    function rndCell(){
+      return {x:(Math.random()*N)|0, y:(Math.random()*N)|0};
+    }
+    function eq(a,b){ return a.x===b.x && a.y===b.y; }
+
+    function placeFood(){
+      let f;
+      for(;;){
+        f = rndCell();
+        let ok = true;
+        for(const s of snake){ if(eq(s,f)){ ok=false; break; } }
+        if(ok) break;
+      }
+      food = f;
+    }
+
+    function reset(){
+      snake = [{x:(N/2)|0,y:(N/2)|0},{x:((N/2)-1)|0,y:(N/2)|0},{x:((N/2)-2)|0,y:(N/2)|0}];
+      dir = {x:1,y:0};
+      nextDir = {x:1,y:0};
+      score = 0;
+      paused = true;
+      gameOver = false;
+      acc = 0;
+      last = performance.now();
+      timeLeft = 99;
+      placeFood();
+      scoreEl.textContent = score;
+      msgEl.innerHTML = 'Press <b>START</b> to begin.';
+      sayHW("SNAKE 0000 START");
+      draw();
+    }
+
+    function setSpeed(v){
+      speed = Math.max(2, Math.min(14, v|0));
+      tickMs = Math.round(1000 / speed);
+      spdEl.textContent = speed;
+      sayHW(`SPEED ${speed} SCORE ${String(score).padStart(4,"0")}`.slice(0,46));
+    }
+
+    function setDir(nx,ny){
+      if(gameOver) return;
+      const nd = {x:nx,y:ny};
+      if(nd.x===-dir.x && nd.y===-dir.y) return;
+      nextDir = nd;
+    }
+
+    function startGame(){
+      if(gameOver){ reset(); }
+      if(paused){
+        paused = false;
+        msgEl.textContent = "Playing. STOP pauses.";
+        sayHW(`GO ${String(score).padStart(4,"0")} SPD ${speed}`.slice(0,46));
+      }
+    }
+
+    function pauseGame(){
+      if(gameOver){ reset(); return; }
+      paused = !paused;
+      msgEl.innerHTML = paused ? 'Paused. Press <b>START</b> to resume.' : "Playing. STOP pauses.";
+      sayHW(paused ? `PAUSE ${String(score).padStart(4,"0")}` : `GO ${String(score).padStart(4,"0")}`);
+    }
+
+    function step(){
+      dir = nextDir;
+      const head = snake[0];
+      const nh = {x: head.x + dir.x, y: head.y + dir.y};
+
+      if(nh.x<0) nh.x = N-1;
+      else if(nh.x>=N) nh.x = 0;
+      if(nh.y<0) nh.y = N-1;
+      else if(nh.y>=N) nh.y = 0;
+
+      for(let i=0;i<snake.length;i++){
+        if(eq(snake[i], nh)){
+          gameOver = true;
+          paused = true;
+          msgEl.innerHTML = `Game over. Score <b>${score}</b>. Press <b>STOP</b> to restart.`;
+          sayHW(`OVER ${String(score).padStart(4,"0")} BEST ${String(best).padStart(4,"0")}`.slice(0,46));
+          return;
+        }
+      }
+
+      snake.unshift(nh);
+
+      if(eq(nh, food)){
+        score++;
+        scoreEl.textContent = score;
+        if(score>best){
+          best = score;
+          bestEl.textContent = best;
+          try { localStorage.setItem("snake_best", String(best)); } catch(e){}
+        }
+        timeLeft = Math.min(9999, timeLeft + 12);
+        placeFood();
+        sayHW(`SCORE ${String(score).padStart(4,"0")} BEST ${String(best).padStart(4,"0")}`.slice(0,46));
+      }else{
+        snake.pop();
+      }
+    }
+
+    function draw(){
+      g.clearRect(0,0,c.width,c.height);
+
+      g.fillStyle = "#0b0b0b";
+      g.fillRect(0,0,c.width,c.height);
+
+      g.strokeStyle = "rgba(255,255,255,0.05)";
+      g.lineWidth = 1;
+      for(let i=1;i<N;i++){
+        const p = i*CELL;
+        g.beginPath(); g.moveTo(p,0); g.lineTo(p,c.height); g.stroke();
+        g.beginPath(); g.moveTo(0,p); g.lineTo(c.width,p); g.stroke();
+      }
+
+      g.fillStyle = "#fff";
+      g.globalAlpha = 0.18;
+      g.fillRect(food.x*CELL, food.y*CELL, CELL, CELL);
+      g.globalAlpha = 1;
+
+      for(let i=snake.length-1;i>=0;i--){
+        const s = snake[i];
+        const t = i===0 ? 1 : 0.7;
+        g.globalAlpha = t;
+        g.fillRect(s.x*CELL+1, s.y*CELL+1, CELL-2, CELL-2);
+      }
+      g.globalAlpha = 1;
+
+      if(paused){
+        g.fillStyle = "rgba(0,0,0,0.45)";
+        g.fillRect(0,0,c.width,c.height);
+        g.fillStyle = "#fff";
+        g.font = "700 28px system-ui,-apple-system,Segoe UI,Roboto,Arial";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(gameOver ? "GAME OVER" : "PAUSED", c.width/2, c.height/2 - 18);
+        g.font = "14px system-ui,-apple-system,Segoe UI,Roboto,Arial";
+        g.fillText(gameOver ? "STOP to restart" : "START to play", c.width/2, c.height/2 + 16);
+      }
+    }
+
+    function loop(now){
+      const dt = Math.min(100, now - last);
+      last = now;
+
+      if(!paused && !gameOver){
+        acc += dt;
+        while(acc >= tickMs){
+          acc -= tickMs;
+          step();
+          timeLeft -= 1;
+          if(timeLeft <= 0){
+            gameOver = true;
+            paused = true;
+            msgEl.innerHTML = `Time! Score <b>${score}</b>. Press <b>STOP</b> to restart.`;
+            sayHW(`TIME ${String(score).padStart(4,"0")} BEST ${String(best).padStart(4,"0")}`.slice(0,46));
+            break;
+          }
+          if((timeLeft % 5) === 0) hwTime();
+        }
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if(!msg || !msg.type) return;
+
+      if(msg.type === "error"){
+        msgEl.textContent = String(msg.message || "Error");
+        sayHW(("ERR " + String(msg.message||"")).slice(0,46));
+        return;
+      }
+
+      if(msg.type === "hidResult"){
+        if(msg.success === false){
+          msgEl.textContent = "HID error: " + (msg.error || msg.command || "unknown");
+        }
+        return;
+      }
+
+      if(msg.type === "keypress"){
+        const d = msg.description || "";
+        const k = msg.key || "";
+
+        if(d === "START" || k === "Enter"){ startGame(); return; }
+        if(d === "STOP" || k === "Escape"){ pauseGame(); return; }
+
+        if(d === "PLUS" || k === "+"){ setSpeed(speed+1); return; }
+        if(d === "MINUS" || k === "-"){ setSpeed(speed-1); return; }
+
+        if(d === "COOK"){ setDir(0,-1); return; }
+        if(d === "DEFROST"){ setDir(-1,0); return; }
+        if(d === "REHEAT"){ setDir(1,0); return; }
+        if(d === "ELEMENTS"){ setDir(0,1); return; }
+
+        if(k === "ArrowUp") setDir(0,-1);
+        else if(k === "ArrowLeft") setDir(-1,0);
+        else if(k === "ArrowRight") setDir(1,0);
+        else if(k === "ArrowDown") setDir(0,1);
+      }
+    });
+
+    reset();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
