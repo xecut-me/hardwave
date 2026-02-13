@@ -4,7 +4,7 @@ Write a HTML page that will be loaded into iframe on a device with a screen, no 
 
 Parent frame has a connection to a telegram chat and to special 7-segment clock, it will manage all stuff, you just need to communicate with it via postMessage. Your code will run in a sandboxed iframe with `sandbox="allow-scripts"`.
 
-Please keep code small enough but not smaller that it should be. Prioritize fast answer if it not hurts usability and code correctness. Add small instructions on what keys meaning is. Therefore not add comments they dont needed.
+Please keep code small enough but not smaller that it should be. Prioritize fast answer if it not hurts usability and code correctness. Do not write comments. When doing application add a simple educational info on which buttons to press on a HID keyboard.
 
 # Plugin Architecture
 
@@ -12,9 +12,6 @@ Plugins are loaded into an iframe by the parent frame. The parent handles:
 - Telegram bot long-polling and message processing
 - WebHID communication with 7-segment display hardware
 - Key overlay display (big bouncing text on keypress)
-- Admin commands: `/on`, `/off`, `/reload`, `/plugin <name|url>`
-
-Plugins can be switched at runtime via `/plugin` command. Registered plugins are defined in parent's `PLUGINS` object with default key display settings.
 
 # Receiving Messages (Parent → Plugin)
 
@@ -65,66 +62,42 @@ window.addEventListener('message', (event) => {
 
 # Sending Messages (Plugin → Parent)
 
-```javascript
-function sendToParent(msg) {
-  window.parent.postMessage(msg, '*');
-}
-```
-
 **Key Display Control**
 ```javascript
 // Enable/disable the key overlay in parent, it will display all pressed keys in a big, overlapping bounce
-sendToParent({ type: 'keyDisplayMode', enabled: true });
+window.parent.postMessage(({ type: 'keyDisplayMode', enabled: true }, '*');
 ```
 
 **WebHID Commands**
 ```javascript
 // Send running text to hardware display
-sendToParent({
+window.parent.postMessage(({
   type: 'hid',
   command: 'runningText',
   text: 'Hello World'
-});
+}, '*');
 
 // Send raw display data
-sendToParent({
+window.parent.postMessage(({
   type: 'hid',
   command: 'raw',
   digits: [0, 0, 0, 0],  // 4 values, 0-127 each
   symbols: 0              // 0-4095
-});
+}, '*');
 ```
 
 **Telegram Reactions**
 ```javascript
 // Send emoji reaction to a message
-sendToParent({
+window.parent.postMessage(({
   type: 'reaction',
   chatId: 123456789,
   messageId: 42,
   emoji: '👀'
-});
+}, '*');
 ```
 
-# Keypress Mapping
-
-Raw key values are mapped to descriptions by parent:
-
-| Raw Key | Description |
-|---------|-------------|
-| `c`, `C` | COOK |
-| `d`, `D` | DEFROST |
-| `r`, `R` | REHEAT |
-| `w`, `W` | WAVES |
-| `t`, `T` | TIME |
-| `e`, `E` | ELEMENTS |
-| `+` | PLUS |
-| `-` | MINUS |
-| `z`, `Z` | TEN_MIN |
-| `y`, `Y` | ONE_MIN |
-| `x`, `X` | TEN_SEC |
-| `Escape` | STOP |
-| `Enter` | START |
+# Keyboard
 
 Use `msg.description` for logical key handling:
 ```javascript
@@ -133,8 +106,6 @@ case 'keypress':
   if (msg.description === 'PLUS') { /* + pressed */ }
   break;
 ```
-
-# Keyboard
 
 ┌──────────────────────────────────────────┐
 │                                          │
@@ -270,7 +241,3 @@ sendToParent({
   symbols: 0b000000000001  // 12-bit bitmask
 });
 ```
-
-# Task
-
-Make a snake game
