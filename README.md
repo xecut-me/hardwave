@@ -99,6 +99,31 @@ Standalone HTML, который напрямую работает с Telegram Bo
 - Автологин пользователя `kiosk`
 - Автозапуск X11 + Chromium
 
+## NixOS live/EFI
+
+Для сборки NixOS-образов нужны flakes и `nix-command`.
+
+```bash
+nix --extra-experimental-features "nix-command flakes" build .#live
+```
+
+Перед сборкой положить рядом с `flake.nix` файл `credentials.nix`:
+
+```nix
+{
+  sshKey = "changeme";
+  wifiPassword = "changeme";
+}
+```
+
+Цели сборки:
+
+```bash
+nix build .#live
+nix build .#efi
+sudo nixos-rebuild switch --flake .#switch
+```
+
 ## Железо
 
 | | |
