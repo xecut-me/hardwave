@@ -67,9 +67,7 @@
         openssh.authorizedKeys.keys = [ credentials.sshKey ];
       };
 
-      environment.systemPackages = with pkgs; [
-        vim curl openssl htop tmux pciutils usbutils lsof iotop ethtool ipmitool smartmontools nvme-cli
-      ];
+      environment.systemPackages = with pkgs; [ vim curl htop tmux ];
 
       systemd.targets.sleep.enable = false;
       systemd.targets.suspend.enable = false;
@@ -77,31 +75,6 @@
       systemd.targets.hybrid-sleep.enable = false;
 
       system.stateVersion = "25.11";
-    };
-
-    live = lib.nixosSystem {
-      inherit system;
-
-      modules = [
-        common
-
-        ({ config, lib, pkgs, modulesPath, ... }: {
-          imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-minimal.nix" ];
-        })
-      ];
-    };
-
-    switch = lib.nixosSystem {
-      inherit system;
-
-      modules = [
-        common
-
-        ({ modulesPath, ... }: {
-          imports = [ "${modulesPath}/profiles/minimal.nix" ];
-          boot.kernelParams = [ "nohibernate" ];
-        })
-      ];
     };
 
     efi = lib.nixosSystem {
@@ -114,7 +87,7 @@
           imports = [ "${modulesPath}/installer/netboot/netboot.nix" "${modulesPath}/profiles/minimal.nix" ];
           boot.kernelParams = [ "nohibernate" ];
 
-          boot.uki.name = "ephemeral";
+          boot.uki.name = "BOOTX64";
           boot.uki.version = null;
           boot.uki.settings.UKI.Initrd = lib.mkForce "${config.system.build.netbootRamdisk}/initrd";
         })
@@ -122,11 +95,9 @@
     };
   in
   {
-    nixosConfigurations = { inherit live; inherit switch; inherit efi; };
+    nixosConfigurations = { inherit efi; };
 
     packages.${system} = {
-      live = live.config.system.build.isoImage;
-      switch = switch.config.system.build.toplevel;
       efi = efi.config.system.build.uki;
     };
   };
