@@ -101,6 +101,8 @@ Standalone HTML, который напрямую работает с Telegram Bo
 
 ## NixOS
 
+scp ~/Desktop/github/xecut-me/hardwave/configuration.nix root@192.168.10.27:/etc/nixos/configuration.nix
+
 Для установки/обновления NixOS-конфига положить рядом с `configuration.nix` файл `credentials.nix`:
 
 ```nix
